@@ -65,8 +65,8 @@ does not resolve a dependency advisory.
 Download only from this repository's immutable GitHub Releases. For an explicit
 tag and local archive, use Bash, a current GitHub CLI, and `jq` to verify all three
 trust layers before extraction: the pinned Ed25519 manifest signature, immutable
-Release assets, and exact workflow/commit provenance. Obtain the Apple Team ID,
-leaf certificate SHA-256, and Ed25519 public key/key ID from an independently
+Release assets, and exact workflow/commit provenance. Obtain the Ed25519
+public key/key ID from an independently
 deployed Motrix-controlled HTTPS trust page outside this repository and its
 Releases. The first public Release remains blocked until that page is live,
 linked from an official Motrix site or application, and its canonical URL
@@ -74,6 +74,15 @@ replaces this notice. Never use a key downloaded alongside an archive as its
 own trust anchor. Replace the example tag/asset below with the exact Release
 and local archive. Start in a fresh directory containing the archive but no
 pre-existing manifest, signature, checksums, or notarization log.
+
+The public trust page publishes the Ed25519 root and its rotation history, not
+Apple Team IDs or certificate fingerprints. CI still pins the Apple signing
+identity. Consumers read Apple identity evidence only from the already verified
+Ed25519 manifest, then compare it with the actual code signature. This does not
+make Apple identities confidential: they remain inspectable in Developer ID
+signatures and release evidence. It removes a separate out-of-band Apple
+identity anchor, so a compromised Ed25519 root is not independently detected by
+an externally pinned Apple identity in this consumer policy.
 
 Project release tags are annotated and hash-bound to the exact protected-main
 dispatch commit; OpenPGP tag signatures are not required. Tagger metadata is
@@ -152,35 +161,30 @@ common block is the complete pre-extraction publisher check for Linux.
 
 On Windows, first change the common block's `asset` assignment to the exact
 `win32-x64` or `win32-arm64` ZIP, then run it in Git Bash or WSL from the fresh
-directory containing that archive. Install `gh`, `jq`, and GnuPG in that
+directory containing that archive. Install `gh`, `jq`, and Python in that
 environment first. The short `Get-FileHash` example in the README is only a
 corruption check and does not replace the common block. After it succeeds,
 continue with the project-signature policy below. No Authenticode check applies.
 
 ### macOS Developer ID and notarization
 
-Use a `darwin-arm64` or `darwin-x64` archive in the common block. Obtain the
-expected Team ID and Developer ID leaf-certificate DER SHA-256 from a trusted
-Motrix channel outside this repository and Release, then export them as
-`MOTRIX_MACOS_TEAM_ID` and `MOTRIX_MACOS_CERT_SHA256`. Continue in the same
-Bash shell after the common block:
+Use a `darwin-arm64` or `darwin-x64` archive in the common block. Complete its
+pinned Ed25519 verification before reading any Apple identity from the signed
+manifest. No independently published Team ID or certificate fingerprint is
+required. Continue in the same Bash shell after the common block:
 
 ```bash
-expected_team_id=${MOTRIX_MACOS_TEAM_ID:?export the trusted Motrix Apple Team ID}
-expected_certificate_sha256=$(printf '%s' \
-  "${MOTRIX_MACOS_CERT_SHA256:?export the trusted Motrix Developer ID certificate SHA-256}" \
-  | tr '[:upper:]' '[:lower:]')
-printf '%s\n' "$expected_team_id" | grep -Eq '^[A-Z0-9]{10}$'
-printf '%s\n' "$expected_certificate_sha256" | grep -Eq '^[0-9a-f]{64}$'
-
-signing_record=$(printf '%s' "$asset_record" | jq -cer \
-  --arg team "$expected_team_id" --arg certificate "$expected_certificate_sha256" '
+signing_record=$(printf '%s' "$asset_record" | jq -cer '
   .signing
   | select(.schemaVersion == 3 and .platform == "darwin"
       and .kind == "apple-developer-id")
-  | select(.identity.teamId == $team
-      and .identity.certificateSha256 == $certificate)
   | select(.notarization.status == "Accepted")
+')
+expected_team_id=$(printf '%s' "$signing_record" | jq -er '
+  .identity.teamId | select(type == "string" and test("^[A-Z0-9]{10}$"))
+')
+expected_certificate_sha256=$(printf '%s' "$signing_record" | jq -er '
+  .identity.certificateSha256 | select(type == "string" and test("^[0-9a-f]{64}$"))
 ')
 notary_name=$(printf '%s' "$signing_record" | jq -er \
   '.notarization.developerLog.name')
@@ -452,12 +456,13 @@ project; this does not provide independent two-person human review. Pull request
 require passing CI, not self-impossible approving reviews. Repository, organization, and enterprise Actions
 artifact-retention limits must allow the workflow's 36-day retention request,
 which covers GitHub's 30-day approval and 35-day workflow limits. The pinned
-Apple Team ID/leaf certificate SHA-256 and Ed25519 manifest public key/key ID must also be published
-together through a stable Motrix-controlled HTTPS trust page outside this
+Ed25519 manifest public key/key ID must also be published
+through a stable Motrix-controlled HTTPS trust page outside this
 repository and its Releases, linked from an official Motrix site or
 application, so download verification has an independent trust root. Preserve
-an append-only identity history with effective Release ranges when any pin
-rotates. The exact deployed URL must replace the first-release notice in the
+an append-only identity history with effective Release ranges when the Ed25519 root
+rotates. Apple Team ID/certificate pins remain internal release policy; no
+separate public Apple identity announcement is required. The exact deployed URL must replace the first-release notice in the
 verification section before publication. The catch-all CODEOWNERS rule names the actual release maintainer, `agalwood`.
 The GitHub account and its recovery/MFA credentials are part of the trust boundary;
 a single compromised maintainer account cannot be mitigated by a second-person

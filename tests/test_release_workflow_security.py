@@ -495,8 +495,8 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
             "common Release, tag, provenance, manifest, size, and",
             "not sufficient by itself",
             "Git Bash or WSL",
-            "MOTRIX_MACOS_TEAM_ID",
-            "MOTRIX_MACOS_CERT_SHA256",
+            ".identity.teamId | select",
+            ".identity.certificateSha256 | select",
             "codesign --verify --strict --verbose=4",
             'codesign --display --extract-certificates="$certificate_prefix"',
             'codesign -vvvv -R="notarized" --check-notarization',
@@ -515,13 +515,27 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
         self.assertIn("The ZIP container itself is not code-signed", document)
         self.assertNotRegex(document, r"--extract-certificates[ \t]+")
         self.assertNotIn("$inputStream.CopyTo", document)
+        self.assertNotIn("MOTRIX_MACOS_TEAM_ID", document)
+        self.assertNotIn("MOTRIX_MACOS_CERT_SHA256", document)
+        self.assertLess(document.index('verify-manifest --directory . --tag "$tag"'),
+                        document.index(".identity.teamId | select"))
 
-    def test_first_release_requires_an_out_of_band_identity_trust_page(self) -> None:
+    def test_public_trust_is_ed25519_while_internal_apple_checks_remain(self) -> None:
+        security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+        contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn("not\nApple Team IDs or certificate fingerprints", security)
+        self.assertIn("not confidential", contributing)
+        self.assertIn("EXPECTED_MACOS_TEAM_ID: ${{ vars.EXPECTED_MACOS_TEAM_ID }}", workflow)
+        self.assertIn("EXPECTED_MACOS_CERT_SHA256: ${{ vars.EXPECTED_MACOS_CERT_SHA256 }}", workflow)
+        self.assertIn("scripts/sign-macos.sh", workflow)
+        self.assertIn("scripts/notarize-macos.sh", workflow)
+
+    def test_first_release_requires_an_out_of_band_ed25519_trust_page(self) -> None:
         contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
         for document in (contributing, security):
             self.assertIn("Motrix-controlled HTTPS trust page", document)
-            self.assertIn("Apple Team ID", document)
             self.assertIn("Ed25519 manifest public key", document)
             self.assertIn("append-only identity history", document)
             self.assertIn("first public Release", document)
