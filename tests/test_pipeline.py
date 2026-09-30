@@ -62,7 +62,6 @@ EVENT_SHA = "c" * 40
 CONTROL_SHA = EVENT_SHA
 DIFFERENT_CONTROL_SHA = "d" * 40
 TAG_OBJECT_SHA = "e" * 40
-TAG_SIGNER_FINGERPRINT = "F" * 40
 
 
 class PipelineTest(unittest.TestCase):
@@ -725,8 +724,6 @@ class PipelineTest(unittest.TestCase):
                     CONTROL_SHA,
                     "--tag-object-sha",
                     TAG_OBJECT_SHA,
-                    "--release-tag-signer-fingerprint",
-                    TAG_SIGNER_FINGERPRINT,
                     "--expected-macos-team-id",
                     MAC_TEAM_ID,
                     "--expected-macos-cert-sha256",
@@ -1964,7 +1961,7 @@ class PipelineTest(unittest.TestCase):
             )
             self.assertFalse(manifest["formalRelease"])
             self.assertIsNone(manifest["releaseTagObjectSha"])
-            self.assertIsNone(manifest["releaseTagSignerFingerprint"])
+            self.assertNotIn("releaseTagSignerFingerprint", manifest)
             self.assertEqual(
                 [entry["target"] for entry in manifest["targets"]],
                 list(EXPECTED_TARGETS),
@@ -2034,9 +2031,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(manifest["releaseCommit"], EVENT_SHA)
             self.assertEqual(manifest["controlCommit"], CONTROL_SHA)
             self.assertEqual(manifest["releaseTagObjectSha"], TAG_OBJECT_SHA)
-            self.assertEqual(
-                manifest["releaseTagSignerFingerprint"], TAG_SIGNER_FINGERPRINT
-            )
+            self.assertNotIn("releaseTagSignerFingerprint", manifest)
             signed = {
                 entry["target"]: entry["signing"]["kind"]
                 for entry in manifest["targets"]

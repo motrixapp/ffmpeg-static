@@ -64,18 +64,23 @@ does not resolve a dependency advisory.
 
 Download only from this repository's immutable GitHub Releases. For an explicit
 tag and local archive, use Bash, a current GitHub CLI, and `jq` to verify all three
-trust layers before extraction. Obtain both the release-tag signer fingerprint
-and public key from a trusted Motrix channel outside this repository and
-Release; using material from the manifest or tag as its own trust anchor is
-forbidden. The same independently deployed Motrix-controlled HTTPS trust page
-must publish the Apple Team ID and certificate SHA-256 plus the Ed25519 manifest public key and SPKI-DER SHA-256 key ID. The first public Release remains blocked until
-that page is live, linked from an official Motrix site or application, and its
-exact URL replaces this first-release notice. Set the public-key path in
-`MOTRIX_RELEASE_TAG_SIGNING_PUBLIC_KEY`; the commands require GnuPG. Replace
-the example `tag` and `asset` assignments below with the exact Release tag and
-local archive name. Start in a fresh working directory containing the archive,
-but no pre-existing `ffmpeg-manifest.json`, `SHA256SUMS`, or notarization log;
-the commands download those files and intentionally refuse overwrite prompts.
+trust layers before extraction: the pinned Ed25519 manifest signature, immutable
+Release assets, and exact workflow/commit provenance. Obtain the Apple Team ID,
+leaf certificate SHA-256, and Ed25519 public key/key ID from an independently
+deployed Motrix-controlled HTTPS trust page outside this repository and its
+Releases. The first public Release remains blocked until that page is live,
+linked from an official Motrix site or application, and its canonical URL
+replaces this notice. Never use a key downloaded alongside an archive as its
+own trust anchor. Replace the example tag/asset below with the exact Release
+and local archive. Start in a fresh directory containing the archive but no
+pre-existing manifest, signature, checksums, or notarization log.
+
+Project release tags are annotated and hash-bound to the exact protected-main
+dispatch commit; OpenPGP tag signatures are not required. Tagger metadata is
+not proof of maintainer authorization. This removes a separate offline tag-key
+authorization layer: protected GitHub controls, manual environments, and the
+pinned Ed25519 signature now carry that responsibility. FFmpeg upstream source
+PGP verification is unchanged.
 
 ```bash
 set -euo pipefail
@@ -83,10 +88,6 @@ repo=motrixapp/ffmpeg-static
 tag=v9.0.2-motrix.1
 asset=ffmpeg-9.0.2-motrix.1-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
-expected_tag_signer_fingerprint=${MOTRIX_RELEASE_TAG_SIGNER_FINGERPRINT:?export the trusted Motrix release-tag signer fingerprint}
-printf '%s\n' "$expected_tag_signer_fingerprint" \
-  | grep -Eq '^([0-9A-F]{40}|[0-9A-F]{64})$'
-
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS
 # Use a separately trusted checkout whose keys/manifest-ed25519.pub matches
@@ -95,19 +96,15 @@ trusted_verifier=${MOTRIX_MANIFEST_VERIFIER:?path to independently trusted scrip
 python3 "$trusted_verifier" verify-manifest --directory . --tag "$tag"
 gh release verify-asset "$tag" "$manifest" -R "$repo"
 gh release verify-asset "$tag" "$asset" -R "$repo"
-control_commit=$(jq -er --arg tag "$tag" \
-  --arg signer "$expected_tag_signer_fingerprint" '
+control_commit=$(jq -er --arg tag "$tag" '
   select(.schemaVersion == 3 and .formalRelease == true and .releaseTag == $tag)
   | select((.releaseCommit | type) == "string"
       and (.controlCommit | type) == "string"
-      and (.releaseTagObjectSha | type) == "string"
-      and (.releaseTagSignerFingerprint | type) == "string")
+      and (.releaseTagObjectSha | type) == "string")
   | select((.releaseCommit | test("^[0-9a-f]{40}$"))
       and (.controlCommit | test("^[0-9a-f]{40}$"))
-      and (.releaseTagObjectSha | test("^[0-9a-f]{40}$"))
-      and (.releaseTagSignerFingerprint | test("^([0-9A-F]{40}|[0-9A-F]{64})$")))
+      and (.releaseTagObjectSha | test("^[0-9a-f]{40}$")))
   | select(.releaseCommit == .controlCommit)
-  | select(.releaseTagSignerFingerprint == $signer)
   | .controlCommit
 ' "$manifest")
 asset_record=$(jq -cer --arg asset "$asset" '
@@ -132,51 +129,6 @@ tag_record=$(gh api "repos/$repo/git/tags/$tag_object")
 test "$(printf '%s' "$tag_record" | jq -r '.tag')" = "$tag"
 test "$(printf '%s' "$tag_record" | jq -r '.object.type')" = commit
 test "$(printf '%s' "$tag_record" | jq -r '.object.sha')" = "$control_commit"
-test "$(printf '%s' "$tag_record" | jq -r '.verification.verified')" = true
-test "$(printf '%s' "$tag_record" | jq -r '.verification.reason')" = valid
-trusted_tag_key=${MOTRIX_RELEASE_TAG_SIGNING_PUBLIC_KEY:?export the trusted Motrix release-tag public-key file}
-test -f "$trusted_tag_key" && test ! -L "$trusted_tag_key"
-test "$(wc -c < "$trusted_tag_key" | tr -d '[:space:]')" -le 131072
-tag_verify_dir=$(mktemp -d "${TMPDIR:-/tmp}/motrix-tag-verify.XXXXXX")
-chmod 700 "$tag_verify_dir"
-cleanup_tag_verify() { rm -rf -- "$tag_verify_dir"; }
-trap cleanup_tag_verify EXIT HUP INT TERM
-printf '%s' "$tag_record" | jq -ej '
-  .verification.signature
-  | select(type == "string" and length > 0 and length <= 131072)
-' > "$tag_verify_dir/signature.asc"
-printf '%s' "$tag_record" | jq -ej '
-  .verification.payload
-  | select(type == "string" and length > 0 and length <= 1048576)
-' > "$tag_verify_dir/payload.txt"
-awk -v object="$control_commit" -v tag="$tag" '
-  NR == 1 { valid = ($0 == "object " object); next }
-  NR == 2 { valid = valid && ($0 == "type commit"); next }
-  NR == 3 { valid = valid && ($0 == "tag " tag); next }
-  NR == 4 { valid = valid && ($0 ~ /^tagger /); next }
-  NR == 5 { valid = valid && ($0 == ""); next }
-  END { exit !(NR >= 5 && valid) }
-' "$tag_verify_dir/payload.txt"
-gpg --no-options --batch --no-autostart --homedir "$tag_verify_dir" \
-  --quiet --import "$trusted_tag_key" >/dev/null 2>&1
-tag_key_fingerprints=$(gpg --no-options --batch --no-autostart \
-  --homedir "$tag_verify_dir" --with-colons --list-keys 2>/dev/null \
-  | awk -F: '$1 == "pub" { want=1; next }
-      want && $1 == "fpr" { print toupper($10); want=0 }')
-test "$(printf '%s\n' "$tag_key_fingerprints" | awk 'NF { count++ } END { print count + 0 }')" -eq 1
-test "$tag_key_fingerprints" = "$expected_tag_signer_fingerprint"
-gpg --no-options --batch --no-autostart --no-auto-key-retrieve \
-  --homedir "$tag_verify_dir" --status-fd=1 \
-  --verify "$tag_verify_dir/signature.asc" "$tag_verify_dir/payload.txt" \
-  > "$tag_verify_dir/verify.status" 2>/dev/null
-awk -v expected="$expected_tag_signer_fingerprint" '
-  $2 == "VALIDSIG" && ($10 == 8 || $10 == 9 || $10 == 10) \
-    && (toupper($3) == expected || toupper($NF) == expected) { valid++ }
-  $2 == "BADSIG" || $2 == "ERRSIG" || $2 == "NO_PUBKEY" \
-    || $2 == "EXPSIG" || $2 == "EXPKEYSIG" || $2 == "REVKEYSIG" \
-    || $2 == "KEYEXPIRED" || $2 == "SIGEXPIRED" { invalid = 1 }
-  END { exit !(valid == 1 && !invalid) }
-' "$tag_verify_dir/verify.status"
 for subject in "$manifest" "$asset"; do
   gh attestation verify "$subject" -R "$repo" \
     --source-ref refs/heads/main \
@@ -189,8 +141,6 @@ checksum_line=$(awk -v name="$asset" '
 ' SHA256SUMS)
 test "${checksum_line%%  *}" = "$manifest_asset_sha"
 printf '%s\n' "$checksum_line" | sha256sum -c -
-cleanup_tag_verify
-trap - EXIT HUP INT TERM
 ```
 
 On macOS, replace the final `sha256sum -c -` with `shasum -a 256 -c -`.
@@ -383,12 +333,10 @@ The release pipeline is expected to fail closed when:
   runtime, timestamp, or accepted notarization.
 - A production Windows candidate differs from its approved unsigned input, or
   the complete formal manifest lacks the pinned Ed25519 project signature.
-- A formal request's tag does not match `sources.env`, is lightweight, lacks a
-  GitHub-verified valid signature, does not point directly to the exact
-  protected-`main` dispatch commit, has a tagger email different from
-  `EXPECTED_RELEASE_TAGGER_EMAIL`, or fails local verification with
-  `RELEASE_TAG_SIGNING_PUBLIC_KEY` and the exact
-  `EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT`.
+- A formal request's tag does not match `sources.env`, is lightweight, targets
+  another tag instead of a commit, does not point directly to the exact
+  protected-`main` dispatch commit, changes object SHA before publication, or
+  its raw Git bytes/API record fail the exact object/commit/name binding.
 - A formal run is not executing in the hard-coded canonical repository
   `motrixapp/ffmpeg-static`; a repository name taken from fork-controlled event
   context is not a trust anchor.
@@ -462,7 +410,7 @@ Formal CI requires Python 3.9 or later, using only the standard library for
 build and validation orchestration. Python is neither a compiler identity nor
 a runtime dependency of `ffmpeg`/`ffprobe`; its observed version belongs only
 to build provenance. Formal SPDX `creationInfo.created` uses the verified
-signed annotated tagger timestamp, while control/test output uses the trusted
+hash-bound annotated tagger timestamp, while control/test output uses the trusted
 control-commit timestamp. `SOURCE_DATE_EPOCH` is only the normalized archive
 timestamp.
 
@@ -479,11 +427,11 @@ derives the private key's public SPKI and checks it against keys/manifest-ed2551
 and signs the domain bytes `Motrix FFmpeg release manifest v1\n` followed by the exact
 manifest bytes. Only the public key is committed or bundled in Motrix. Key rotation
 requires an independently reviewed Motrix update before new-key releases are usable.
-`EXPECTED_RELEASE_TAGGER_EMAIL`, `EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT`,
-and `RELEASE_TAG_SIGNING_PUBLIC_KEY` are protected tag-identity pins. The
-public key is not secret, but its value is privileged policy: any change to
-the email, key, or uppercase primary fingerprint requires the same independent
-release-authority review.
+No project OpenPGP/tagger-email variables are needed. Tagger name, email and
+timestamp are recorded facts, not a cryptographic authorization identity.
+The former `releaseTagSignerFingerprint` field is not emitted; do not fill it
+with a placeholder or the unrelated manifest key. The Ed25519 trust anchor and
+macOS identity pins remain security-sensitive release policy.
 
 If any code-signing, notarization, or release-administration credential may
 have leaked, revoke or rotate it with Apple or GitHub, or rotate the project signing key
@@ -504,8 +452,7 @@ project; this does not provide independent two-person human review. Pull request
 require passing CI, not self-impossible approving reviews. Repository, organization, and enterprise Actions
 artifact-retention limits must allow the workflow's 36-day retention request,
 which covers GitHub's 30-day approval and 35-day workflow limits. The pinned
-release-tag signer public key/fingerprint, Apple Team ID/leaf certificate
-SHA-256, and the Ed25519 manifest public key/key ID must also be published
+Apple Team ID/leaf certificate SHA-256 and Ed25519 manifest public key/key ID must also be published
 together through a stable Motrix-controlled HTTPS trust page outside this
 repository and its Releases, linked from an official Motrix site or
 application, so download verification has an independent trust root. Preserve

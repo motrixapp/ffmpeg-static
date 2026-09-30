@@ -96,7 +96,7 @@ verification on every affected target.
   unless two independent clean builds match and every compiler, linker,
   SDK/sysroot, host-tool, environment, and signing input is covered.
 - `SOURCE_DATE_EPOCH` controls normalized archive timestamps only. A formal
-  SPDX `creationInfo.created` value comes from the verified signed annotated
+  SPDX `creationInfo.created` value comes from the hash-bound annotated
   tagger timestamp; unsigned control/test output uses the trusted
   control-commit timestamp.
 - Keep schema versions exact: `BUILD-INFO.json` 1, `LICENSES.json` 2,
@@ -298,7 +298,7 @@ plan/visibility change, or credential rotation.
 - [ ] Create an active [tag ruleset](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository)
   for `v*-motrix.*`. Restrict tag creation to the release-maintainer role and
   block update/deletion after creation; grant no routine bypass and record any
-  break-glass actor. Release tags must be signed annotated tags that point
+  break-glass actor. Release tags must be annotated tags that point
   directly to a commit on protected `main`; lightweight tags are forbidden.
   The workflow's API checks are not a substitute for this server-side rule.
 - [ ] Protect `main`: pull requests only, required six-target CI/status checks,
@@ -325,23 +325,15 @@ plan/visibility change, or credential rotation.
   GitHub's 30-day Environment approval limit and 35-day total workflow limit.
   A lower server-side maximum blocks formal releases and must not be treated as
   an acceptable approval SLA.
-- [ ] Set protected repository/organization variables
-  `EXPECTED_MACOS_TEAM_ID`, `EXPECTED_MACOS_CERT_SHA256`,
-  and `EXPECTED_RELEASE_TAGGER_EMAIL` to concrete reviewed production identities.
-  Also set
-  `EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT` to the uppercase 40- or 64-hex
-  primary OpenPGP fingerprint and `RELEASE_TAG_SIGNING_PUBLIC_KEY` to the exact
-  armored public key. Record and independently verify their source; wildcards,
-  placeholders, network key discovery, and “accept whatever is in the
-  PFX/tag” are forbidden. Before the first public Release, publish the approved
-  release-tag signer public key/fingerprint, Apple Team ID/leaf certificate
-  SHA-256, and the Ed25519 manifest public key/key ID together on a stable
-  Motrix-controlled HTTPS trust page outside this repository and its Releases.
-  Link that page from an official Motrix site or application, record its exact
-  canonical URL in `SECURITY.md`, and retain append-only identity history with
-  effective Release ranges when a pin rotates. Consumers must be able to set
-  all required verification inputs from this independent trust root. Until the page
-  and documentation exist, the first public Release remains blocked.
+- [ ] Set `EXPECTED_MACOS_TEAM_ID` and `EXPECTED_MACOS_CERT_SHA256` to
+  independently reviewed production identities; placeholders and “accept
+  whatever is in the PFX” are forbidden. No project OpenPGP/tagger-email
+  variables are required. Before the first public Release, publish the Apple
+  Team ID/leaf certificate SHA-256 and Ed25519 manifest public key/key ID on a
+  stable Motrix-controlled HTTPS trust page outside this repository and its
+  Releases. Link it from an official Motrix site or application, record its
+  exact canonical URL in `SECURITY.md`, and retain append-only identity history.
+  Until this independent trust root is available, keep the first release blocked.
 - [ ] Populate macOS Environment secrets `MAC_CERTS`,
   `MAC_CERTS_PASSWORD`, `API_KEY`, `API_KEY_ID`, and
   `API_KEY_ISSUER_ID`; put the PEM Ed25519 private key in
@@ -361,7 +353,7 @@ plan/visibility change, or credential rotation.
 - [ ] Confirm the downloader and release review process never treat the
   GitHub Release display title or notes as authenticated metadata. GitHub
   permits those fields to change after an immutable Release is published;
-  security decisions must use the signed tag, immutable assets, manifest,
+  security decisions must use the hash-bound tag, immutable assets, signed manifest,
   attestations, hashes, and platform signatures.
 - [ ] Confirm each target's declared minimum OS is encoded in the lock or
   versioned pipeline contract, build record, and asset metadata; tested on an
@@ -386,22 +378,23 @@ plan/visibility change, or credential rotation.
    checks and the maintainer inspected the pull request.
 2. Re-audit the first-release controls above: active tag ruleset, Immutable
    Releases, the actual single CODEOWNER, expected Team/certificate identity
-   variables, the pinned tag-signing public key/fingerprint, the stable
+   variables, the pinned Ed25519 manifest public key, the stable
    out-of-band Motrix HTTPS trust page and its effective identity history, and
    protected `macos-release-signing`, `release-manifest-signing`, and
    `github-release` Environments. The same maintainer may initiate and confirm
    the release; do not describe this as independent human review.
-3. Create the matching **signed annotated tag** directly on that exact
-   protected-`main` commit, using the email pinned by
-   `EXPECTED_RELEASE_TAGGER_EMAIL` and the key pinned by
-   `EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT`/
-   `RELEASE_TAG_SIGNING_PUBLIC_KEY`, and push it through the restricted tag
-   ruleset. The automatic tag-push run is unsigned and must never publish.
-   Keep `main` at the tagged commit until the formal dispatch has started.
-4. Manually run `Build and release` from `main` with `release_tag` set to that
-   existing tag. The dispatch commit must equal the tag's direct target and the
-   GitHub tag API must report a valid verified signature. An empty input is an
-   unsigned rehearsal, not a release.
+3. Create the matching **annotated tag** directly on that exact protected-main
+   commit using `git -c tag.gpgSign=false tag -a <tag> <commit> -m <message>`.
+   OpenPGP is not required; lightweight and tag-to-tag references are forbidden.
+   Push it through the restricted ruleset. The automatic tag-push run is an
+   unsigned test build, not a published release. Keep main at the tagged commit
+   until formal dispatch starts.
+4. Manually run `Build and release` from main with `release_tag` set to the
+   existing tag. Require the canonical repository, protected main, exact direct
+   target/control commit, and raw Git tag-object SHA/API binding. Publish checks
+   repeat that binding before and after final publication. A tagger name/email
+   is not identity proof; this policy relies more heavily on protected GitHub
+   authority than the former independent offline OpenPGP tag-key policy.
 5. Approve each signing Environment only after all unsigned builds, structural
    verification, native functional tests, deterministic-package checks, source
    authentication, and license gates pass. Confirm the exact platform effective
@@ -433,7 +426,7 @@ plan/visibility change, or credential rotation.
    families. Confirm every signature identity, minimum-OS field, effective
    target license, and generated notice set agrees across binary evidence,
    metadata, manifest, and SPDX; verify schema versions 1/2/2/signing-3/manifest-3 and that SPDX
-   creation time is anchored to the signed tagger timestamp rather than
+   creation time is anchored to the hash-bound annotated tagger timestamp rather than
    `SOURCE_DATE_EPOCH`.
 8. Confirm the workflow's independent API check reports Immutable Releases
    enabled. The publish job must create a draft, upload and compare the exact

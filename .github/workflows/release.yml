@@ -40,7 +40,6 @@ jobs:
       event-commit: ${{ steps.trust.outputs.event_commit }}
       release-created: ${{ steps.trust.outputs.release_created }}
       tag-object-sha: ${{ steps.trust.outputs.tag_object_sha }}
-      tag-signer-fingerprint: ${{ steps.trust.outputs.tag_signer_fingerprint }}
       core-artifact-id: ${{ steps.upload-core.outputs.artifact-id }}
       core-artifact-digest: ${{ steps.upload-core.outputs.artifact-digest }}
       toolchain-artifact-id: ${{ steps.upload-toolchain.outputs.artifact-id }}
@@ -128,11 +127,8 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
           EXPECTED_REPOSITORY: motrixapp/ffmpeg-static
-          EXPECTED_RELEASE_TAGGER_EMAIL: ${{ vars.EXPECTED_RELEASE_TAGGER_EMAIL }}
-          EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT: ${{ vars.EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT }}
           FORMAL_RELEASE: ${{ steps.release.outputs.formal_release }}
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_TAG_SIGNING_PUBLIC_KEY }}
           RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         shell: bash
         run: |
@@ -187,122 +183,15 @@ jobs:
               echo "remote release tag does not resolve to the event commit" >&2
               exit 1
             }
-            [[ -n "$EXPECTED_RELEASE_TAGGER_EMAIL" && "$EXPECTED_RELEASE_TAGGER_EMAIL" != *$'\n'* ]]
-            [[ "$EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT" =~ ^([0-9A-F]{40}|[0-9A-F]{64})$ ]] || {
-              echo "release tag signer fingerprint is missing or invalid" >&2
-              exit 1
-            }
             mkdir -p -- build
             gh api "repos/${EXPECTED_REPOSITORY}/git/tags/${direct}" >build/release-tag-object.json
-            tag_verify_dir=$(mktemp -d "${RUNNER_TEMP}/release-tag-gpg.XXXXXX")
-            chmod 700 "$tag_verify_dir"
-            TAG_OBJECT_SHA=$direct EVENT_COMMIT=$event_commit TAG_VERIFY_DIR=$tag_verify_dir /usr/bin/python3 -I - <<'PY'
-          import datetime
-          import json
-          import os
-          import pathlib
-
-          tag = json.loads(pathlib.Path("build/release-tag-object.json").read_text(encoding="utf-8"))
-          verification = tag.get("verification") or {}
-          target = tag.get("object") or {}
-          tagger = tag.get("tagger") or {}
-          if tag.get("sha") != os.environ["TAG_OBJECT_SHA"]:
-              raise SystemExit("GitHub tag object identity mismatch")
-          if tag.get("tag") != os.environ["RELEASE_TAG"]:
-              raise SystemExit("annotated tag object name does not match the release ref")
-          if target.get("type") != "commit" or target.get("sha") != os.environ["EVENT_COMMIT"]:
-              raise SystemExit("annotated tag does not directly target the release commit")
-          if verification.get("verified") is not True or verification.get("reason") != "valid":
-              raise SystemExit("annotated release tag signature is not valid")
-          signature = verification.get("signature")
-          payload = verification.get("payload")
-          public_key = os.environ.get("RELEASE_TAG_SIGNING_PUBLIC_KEY", "")
-          if not isinstance(signature, str) or not signature or len(signature) > 131072:
-              raise SystemExit("annotated tag lacks a bounded detached signature")
-          if not isinstance(payload, str) or not payload or len(payload) > 1048576:
-              raise SystemExit("annotated tag lacks a bounded signed payload")
-          header_text, separator, _message = payload.partition("\n\n")
-          if not separator:
-              raise SystemExit("annotated tag signed payload has no header boundary")
-          headers = {}
-          for line in header_text.splitlines():
-              key, space, value = line.partition(" ")
-              if not space or key in headers:
-                  raise SystemExit("annotated tag signed payload has malformed headers")
-              headers[key] = value
-          if (
-              headers.get("object") != os.environ["EVENT_COMMIT"]
-              or headers.get("type") != "commit"
-              or headers.get("tag") != os.environ["RELEASE_TAG"]
-          ):
-              raise SystemExit("annotated tag signed payload identity mismatch")
-          if not public_key or len(public_key) > 131072:
-              raise SystemExit("release tag signing public key is missing or oversized")
-          verify_dir = pathlib.Path(os.environ["TAG_VERIFY_DIR"])
-          material = {
-              "signature.asc": signature,
-              "payload.txt": payload,
-              "public-key.asc": public_key,
-          }
-          for name, contents in material.items():
-              path = verify_dir / name
-              path.write_bytes(contents.encode("utf-8"))
-              path.chmod(0o600)
-          if tagger.get("email") != os.environ["EXPECTED_RELEASE_TAGGER_EMAIL"]:
-              raise SystemExit("annotated release tag has an unexpected signed tagger email")
-          raw_created = tagger.get("date")
-          if not isinstance(raw_created, str):
-              raise SystemExit("annotated release tag is missing its tagger timestamp")
-          try:
-              created = datetime.datetime.fromisoformat(raw_created.replace("Z", "+00:00"))
-          except ValueError as error:
-              raise SystemExit("annotated release tag has an invalid tagger timestamp") from error
-          if created.tzinfo is None or created.utcoffset() != datetime.timedelta(0):
-              raise SystemExit("annotated release tag timestamp must be UTC")
-          canonical_created = created.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-              output.write(f"release_created={canonical_created}\n")
-              output.write(f"tag_object_sha={os.environ['TAG_OBJECT_SHA']}\n")
-              output.write(
-                  "tag_signer_fingerprint="
-                  f"{os.environ['EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT']}\n"
-              )
-          PY
-            if ! gpg --batch --no-autostart --homedir "$tag_verify_dir" --quiet \
-              --import "$tag_verify_dir/public-key.asc" >/dev/null 2>&1; then
-              echo "could not import the pinned release tag signing public key" >&2
-              exit 1
-            fi
-            mapfile -t tag_key_fingerprints < <(
-              gpg --batch --no-autostart --homedir "$tag_verify_dir" --with-colons \
-                --list-keys 2>/dev/null \
-                | awk -F: '$1 == "pub" {want=1; next} want && $1 == "fpr" {print toupper($10); want=0}'
-            )
-            (( ${#tag_key_fingerprints[@]} == 1 )) \
-              && [[ "${tag_key_fingerprints[0]}" == "$EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT" ]] || {
-              echo "release tag public key does not match the pinned fingerprint" >&2
-              exit 1
-            }
-            tag_status="$tag_verify_dir/verify.status"
-            if ! gpg --batch --no-autostart --no-auto-key-retrieve \
-              --homedir "$tag_verify_dir" --status-fd=1 \
-              --verify "$tag_verify_dir/signature.asc" "$tag_verify_dir/payload.txt" \
-              >"$tag_status" 2>/dev/null; then
-              echo "release tag did not verify with the pinned OpenPGP key" >&2
-              exit 1
-            fi
-            if ! awk -v expected="$EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT" '
-              $2 == "VALIDSIG" && ($10 == 8 || $10 == 9 || $10 == 10) \
-                && (toupper($3) == expected || toupper($NF) == expected) { valid++ }
-              $2 == "BADSIG" || $2 == "ERRSIG" || $2 == "NO_PUBKEY" \
-                || $2 == "EXPSIG" || $2 == "EXPKEYSIG" || $2 == "REVKEYSIG" \
-                || $2 == "KEYEXPIRED" || $2 == "SIGEXPIRED" { invalid = 1 }
-              END { exit !(valid == 1 && !invalid) }
-            ' "$tag_status"; then
-              echo "release tag signature fingerprint validation failed" >&2
-              exit 1
-            fi
-            rm -rf -- "$tag_verify_dir"
+            git fetch --no-tags origin "refs/tags/${RELEASE_TAG}"
+            git cat-file tag "$direct" >build/release-tag-object.raw
+            /usr/bin/python3 -I scripts/validate_release_tag.py \
+              --record build/release-tag-object.json \
+              --raw-object build/release-tag-object.raw \
+              --tag "$RELEASE_TAG" --object-sha "$direct" --commit "$event_commit" \
+              --format github-output >>"$GITHUB_OUTPUT"
           }
           verify_remote_tag
 
@@ -393,6 +282,7 @@ jobs:
           for script in \
             apply_musl_patches.py \
             validate_action_review.py \
+            validate_release_tag.py \
             audit_workflow_actions.py \
             audit_action_dependencies.py \
             assemble-release.py \
@@ -3085,7 +2975,6 @@ jobs:
 
           FORMAL_RELEASE: ${{ needs.prepare-sources.outputs.formal-release }}
           RELEASE_TAG_OBJECT_SHA: ${{ needs.prepare-sources.outputs.tag-object-sha }}
-          RELEASE_TAG_SIGNER_FINGERPRINT: ${{ needs.prepare-sources.outputs.tag-signer-fingerprint }}
           RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
@@ -3098,13 +2987,11 @@ jobs:
             : "${EXPECTED_MACOS_CERT_SHA256:?missing EXPECTED_MACOS_CERT_SHA256}"
 
             : "${RELEASE_TAG_OBJECT_SHA:?missing verified release tag object SHA}"
-            : "${RELEASE_TAG_SIGNER_FINGERPRINT:?missing verified release tag signer fingerprint}"
             release_args+=(
               --release-tag "$RELEASE_TAG"
               --event-sha "$EVENT_COMMIT"
               --control-sha "$CONTROL_SHA"
               --tag-object-sha "$RELEASE_TAG_OBJECT_SHA"
-              --release-tag-signer-fingerprint "$RELEASE_TAG_SIGNER_FINGERPRINT"
               --expected-macos-team-id "$EXPECTED_MACOS_TEAM_ID"
               --expected-macos-cert-sha256 "$EXPECTED_MACOS_CERT_SHA256"
               --windows-project-signature
@@ -3382,7 +3269,6 @@ jobs:
         env:
           EVENT_COMMIT: ${{ needs.prepare-sources.outputs.event-commit }}
           EXPECTED_TAG_OBJECT_SHA: ${{ needs.prepare-sources.outputs.tag-object-sha }}
-          EXPECTED_RELEASE_TAGGER_EMAIL: ${{ vars.EXPECTED_RELEASE_TAGGER_EMAIL }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
           RELEASE_VERSION: ${{ needs.prepare-sources.outputs.release-version }}
@@ -3415,50 +3301,14 @@ jobs:
               echo "remote annotated tag no longer resolves to the release commit" >&2
               exit 1
             }
-            [[ -n "$EXPECTED_RELEASE_TAGGER_EMAIL" && "$EXPECTED_RELEASE_TAGGER_EMAIL" != *$'\n'* ]]
             release_api "repos/${REPOSITORY}/git/tags/${direct}" \
               >"${RUNNER_TEMP}/release-tag-object.json"
-            TAG_OBJECT_SHA=$direct /usr/bin/python3 -I - <<'PY'
-          import json
-          import os
-          import pathlib
-          tag = json.loads(
-              (pathlib.Path(os.environ["RUNNER_TEMP"]) / "release-tag-object.json").read_text(
-                  encoding="utf-8"
-              )
-          )
-          verification = tag.get("verification") or {}
-          target = tag.get("object") or {}
-          tagger = tag.get("tagger") or {}
-          if tag.get("sha") != os.environ["TAG_OBJECT_SHA"]:
-              raise SystemExit("GitHub tag object identity mismatch")
-          if tag.get("tag") != os.environ["RELEASE_TAG"]:
-              raise SystemExit("annotated tag object name changed")
-          if target.get("type") != "commit" or target.get("sha") != os.environ["EVENT_COMMIT"]:
-              raise SystemExit("annotated tag target changed")
-          if verification.get("verified") is not True or verification.get("reason") != "valid":
-              raise SystemExit("annotated release tag signature is no longer valid")
-          payload = verification.get("payload")
-          if not isinstance(payload, str) or not payload or len(payload) > 1048576:
-              raise SystemExit("annotated tag signed payload is missing or oversized")
-          header_text, separator, _message = payload.partition("\n\n")
-          if not separator:
-              raise SystemExit("annotated tag signed payload has no header boundary")
-          headers = {}
-          for line in header_text.splitlines():
-              key, space, value = line.partition(" ")
-              if not space or key in headers:
-                  raise SystemExit("annotated tag signed payload has malformed headers")
-              headers[key] = value
-          if (
-              headers.get("object") != os.environ["EVENT_COMMIT"]
-              or headers.get("type") != "commit"
-              or headers.get("tag") != os.environ["RELEASE_TAG"]
-          ):
-              raise SystemExit("annotated tag signed payload identity changed")
-          if tagger.get("email") != os.environ["EXPECTED_RELEASE_TAGGER_EMAIL"]:
-              raise SystemExit("annotated release tag signed tagger changed")
-          PY
+            git fetch --no-tags origin "refs/tags/${RELEASE_TAG}"
+            git cat-file tag "$direct" >"${RUNNER_TEMP}/release-tag-object.raw"
+            /usr/bin/python3 -I scripts/validate_release_tag.py \
+              --record "${RUNNER_TEMP}/release-tag-object.json" \
+              --raw-object "${RUNNER_TEMP}/release-tag-object.raw" \
+              --tag "$RELEASE_TAG" --object-sha "$direct" --commit "$EVENT_COMMIT" >/dev/null
           }
 
           verify_release_file() {
@@ -3788,7 +3638,7 @@ jobs:
               >"${RUNNER_TEMP}/uploaded-release-asset.json"
           done
 
-          # Repeat the tag-object, target-commit, signature, and tagger binding
+          # Repeat the exact tag-object and protected target-commit binding
           # immediately before crossing the draft-to-public boundary.
           verify_remote_tag
           verify_remote_assets \
