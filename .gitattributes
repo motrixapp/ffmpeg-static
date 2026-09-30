@@ -10,3 +10,7 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 *.asc text eol=lf
+
+# Preserve official security patch bytes, including diff-context whitespace.
+patches/musl-CVE-2026-6042.patch -text -whitespace
+patches/musl-CVE-2026-40200.patch -text -whitespace

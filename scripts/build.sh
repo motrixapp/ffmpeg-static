@@ -260,6 +260,7 @@ MUSL_SOURCE="${WORK_DIR}/src/musl"
 FORTIFY_SOURCE="${WORK_DIR}/src/fortify-headers"
 extract_tar_strip_one "${DOWNLOAD_DIR}/${MUSL_ARCHIVE}" \
   "$MUSL_SOURCE" "$MUSL_SHA256"
+run_clean "$ISOLATED_PYTHON" -I "${SCRIPT_DIR}/apply_musl_patches.py" "$MUSL_SOURCE"
 extract_tar_strip_one "${DOWNLOAD_DIR}/${FORTIFY_HEADERS_ARCHIVE}" \
   "$FORTIFY_SOURCE" "$FORTIFY_HEADERS_SHA256"
 LLVM_MINGW_RECIPE_SOURCE="${WORK_DIR}/src/llvm-mingw-recipe"
@@ -580,7 +581,10 @@ PY
     CXX="${CROSS_PREFIX}clang++"
     AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip NM=llvm-nm STRINGS=llvm-strings
     TARGET_CFLAGS='-O2 -fPIC -fstack-protector-strong -mguard=cf -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00'
-    TARGET_LDFLAGS='-static -mguard=cf -Wl,--nxcompat,--dynamicbase,--high-entropy-va,--major-os-version,10,--minor-os-version,0,--major-subsystem-version,10,--minor-subsystem-version,0'
+    # MinGW uses its own SSP rather than the MSVC load-config SecurityCookie.
+    # Subsystem >= 6.3 would reject the image before startup (llvm-mingw #511).
+    # This loader field is not our Windows 10 API/support contract.
+    TARGET_LDFLAGS='-static -mguard=cf -Wl,--nxcompat,--dynamicbase,--high-entropy-va,--major-os-version,10,--minor-os-version,0,--major-subsystem-version,6,--minor-subsystem-version,2'
     LINK_PROVENANCE=validated-ucrt-system-import-allowlist
     CLANG_VERSION_OUTPUT=$(env -i PATH="$BUILD_PATH" LC_ALL=C "$CC" --version)
     ACTUAL_LLVM_RUNTIME_VERSION=$(awk '

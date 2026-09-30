@@ -452,6 +452,11 @@ def load_sources(path: Optional[Path] = None) -> dict[str, str]:
         "MUSL_COPYRIGHT_SHA256",
         "MUSL_QSORT_NOTICE_SHA256",
         "MUSL_SUNPRO_NOTICE_SHA256",
+        "MUSL_ICONV_PATCH_SHA256",
+        "MUSL_QSORT_PATCH_SHA256",
+        "MUSL_PATCHED_ICONV_SHA256",
+        "MUSL_PATCHED_GB18030UTF_SHA256",
+        "MUSL_PATCHED_QSORT_SHA256",
         "NASM_ARCHIVE",
         "NASM_SHA256",
         "NASM_URL",
@@ -516,6 +521,11 @@ def load_sources(path: Optional[Path] = None) -> dict[str, str]:
         "MUSL_QSORT_NOTICE_SHA256",
         "MUSL_SHA256",
         "MUSL_SUNPRO_NOTICE_SHA256",
+        "MUSL_ICONV_PATCH_SHA256",
+        "MUSL_QSORT_PATCH_SHA256",
+        "MUSL_PATCHED_ICONV_SHA256",
+        "MUSL_PATCHED_GB18030UTF_SHA256",
+        "MUSL_PATCHED_QSORT_SHA256",
         "NASM_SHA256",
         "THIRD_PARTY_NOTICES_SHA256",
         "X264_LICENSE_SHA256",
@@ -848,8 +858,8 @@ def expected_configure_args(target: str, sources: dict[str, str]) -> list[str]:
         ldflags = (
             "-static -mguard=cf "
             "-Wl,--nxcompat,--dynamicbase,--high-entropy-va,--major-os-version,10,"
-            "--minor-os-version,0,--major-subsystem-version,10,"
-            "--minor-subsystem-version,0"
+            "--minor-os-version,0,--major-subsystem-version,6,"
+            "--minor-subsystem-version,2"
         )
         commands = (
             f"{triplet}-clang",

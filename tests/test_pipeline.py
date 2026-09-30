@@ -152,6 +152,15 @@ class PipelineTest(unittest.TestCase):
             "MUSL_COPYRIGHT_SHA256": self._digest(b"fixture for musl-COPYRIGHT\n"),
             "MUSL_QSORT_NOTICE_SHA256": "a" * 64,
             "MUSL_SUNPRO_NOTICE_SHA256": "b" * 64,
+            "MUSL_ICONV_PATCH_SHA256": pipeline_lib.sha256_file(
+                ROOT / "patches/musl-CVE-2026-6042.patch"
+            ),
+            "MUSL_QSORT_PATCH_SHA256": pipeline_lib.sha256_file(
+                ROOT / "patches/musl-CVE-2026-40200.patch"
+            ),
+            "MUSL_PATCHED_ICONV_SHA256": "c" * 64,
+            "MUSL_PATCHED_GB18030UTF_SHA256": "d" * 64,
+            "MUSL_PATCHED_QSORT_SHA256": "e" * 64,
             "GCC_RUNTIME_EXCEPTION_SHA256": self._digest(
                 b"fixture for GCC-RUNTIME-LIBRARY-EXCEPTION.txt\n"
             ),

@@ -29,6 +29,8 @@ SOURCE_LOCK_KEYS=(
   NASM_VERSION NASM_ARCHIVE NASM_URL NASM_SHA256
   MUSL_VERSION MUSL_ARCHIVE MUSL_URL MUSL_SHA256 MUSL_COPYRIGHT_SHA256
   MUSL_QSORT_NOTICE_SHA256 MUSL_SUNPRO_NOTICE_SHA256
+  MUSL_ICONV_PATCH_SHA256 MUSL_QSORT_PATCH_SHA256 MUSL_PATCHED_ICONV_SHA256
+  MUSL_PATCHED_GB18030UTF_SHA256 MUSL_PATCHED_QSORT_SHA256
   GCC_RUNTIME_EXCEPTION_SHA256
   FORTIFY_HEADERS_VERSION FORTIFY_HEADERS_REVISION FORTIFY_HEADERS_ARCHIVE
   FORTIFY_HEADERS_URL FORTIFY_HEADERS_SHA256 FORTIFY_HEADERS_LICENSE_SHA256
@@ -319,6 +321,7 @@ validate_tar_archive() {
   local archive=$1
   local expected_sha256=${2:-}
   local permission_policy=${3:-strict}
+  local maximum_total_size=2147483648
 
   case "$permission_policy" in
     strict | allow-setgid-directories) ;;
@@ -333,11 +336,18 @@ validate_tar_archive() {
       || die "archive changed after authentication: ${archive}"
   fi
 
+  # LLVM 23.1.2 has 2,246,337,223 regular-file bytes. A hash-bound exception
+  # permits this reviewed source-compliance asset up to 2304 MiB; all other
+  # archives retain the 2 GiB ceiling and every other safety check.
+  if [[ "$expected_sha256" == "$LLVM_RUNTIME_SHA256" ]]; then
+    maximum_total_size=2415919104
+  fi
+
   # Python's tar reader gives us structured member and link metadata. System
   # tar listings are ambiguous for control characters and do not expose link
   # targets portably. Extraction remains delegated to the platform tar only
   # after this complete manifest validation succeeds.
-  "$ISOLATED_PYTHON" -I - "$archive" "$permission_policy" <<'PY' \
+  "$ISOLATED_PYTHON" -I - "$archive" "$permission_policy" "$maximum_total_size" <<'PY' \
     || die "unsafe tar archive: ${archive}"
 import os
 import posixpath
@@ -349,11 +359,11 @@ archive = sys.argv[1]
 permission_policy = sys.argv[2]
 maximum_archive_size = 1024 * 1024 * 1024
 # llvm-project is intentionally published as one source-compliance asset and
-# currently contains about 185k entries. Keep a finite ceiling above that
+# currently contains about 198k entries. Keep a finite ceiling above that
 # authenticated input while retaining strict per-member and aggregate limits.
 maximum_members = 250_000
 maximum_member_size = 256 * 1024 * 1024
-maximum_total_size = 2 * 1024 * 1024 * 1024
+maximum_total_size = int(sys.argv[3])
 maximum_path_size = 4096
 
 archive_stat = os.lstat(archive)

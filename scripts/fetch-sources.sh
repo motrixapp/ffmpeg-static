@@ -109,5 +109,9 @@ if [[ "$TARGET" == win32-* ]]; then
   validate_tar_archive "${DOWNLOAD_DIR}/${LLVM_MINGW_ARCHIVE}" "$LLVM_MINGW_SHA256"
 fi
 
+extract_tar_strip_one "${DOWNLOAD_DIR}/${MUSL_ARCHIVE}" \
+  "${TRANSIENT_SOURCE_DIR}/musl" "$MUSL_SHA256"
+"$ISOLATED_PYTHON" -I "${SCRIPT_DIR}/apply_musl_patches.py" "${TRANSIENT_SOURCE_DIR}/musl"
+
 log 'all requested inputs passed SHA-256 validation'
 log "FFmpeg ${FFMPEG_VERSION} passed PGP verification (${FFMPEG_PGP_FINGERPRINT})"

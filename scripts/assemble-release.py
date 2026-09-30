@@ -83,6 +83,7 @@ BASE_ARCHIVE_ENTRIES = {
 
 BUILD_PIPELINE_FILES = (
     "LICENSE",
+    ".gitattributes",
     "sources.env",
     ".github/actionlint.yaml",
     ".github/workflows/ci.yml",
@@ -93,7 +94,11 @@ BUILD_PIPELINE_FILES = (
     "licenses/FFmpeg-IJG-NOTICE.txt",
     "licenses/GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt",
     "licenses/x264-x86inc-ISC.txt",
+    "patches/musl-CVE-2026-6042.patch",
+    "patches/musl-CVE-2026-40200.patch",
+    "scripts/apply_musl_patches.py",
     "scripts/audit_workflow_actions.py",
+    "scripts/audit_action_dependencies.py",
     "scripts/assemble-release.py",
     "scripts/build.sh",
     "scripts/common.sh",
@@ -114,6 +119,9 @@ BUILD_PIPELINE_FILES = (
     "scripts/verify_authenticode_delta.py",
     "scripts/verify_macho_codesign_delta.py",
     "scripts/verify-binary.sh",
+    "scripts/validate_action_review.py",
+    "security/action-risk-review.json",
+    "security/action-dependency-audit.json",
 )
 
 
@@ -1120,6 +1128,12 @@ def _component_packages(
         {
             "name": "musl",
             "SPDXID": "SPDXRef-Source-musl",
+            "packageComment": (
+                "Upstream 1.2.6 plus official CVE-2026-6042 and CVE-2026-40200 "
+                "backports. Both patch files and the application script are in "
+                "the published build-pipeline archive; patch/result hashes are "
+                "bound by sources.env. The upstream archive remains unmodified."
+            ),
             "versionInfo": sources["MUSL_VERSION"],
             "downloadLocation": sources["MUSL_URL"],
             "licenseConcluded": "NOASSERTION",
@@ -1286,7 +1300,12 @@ def _component_packages(
                     "Header-inline build dependency generated from the locked "
                     f"fortify-headers revision {sources['FORTIFY_HEADERS_REVISION']}."
                 ),
-                "musl": "Compiled runtime generated from the locked musl source archive.",
+                "musl": (
+                    "Compiled from locked musl 1.2.6 with official CVE-2026-6042 "
+                    "and CVE-2026-40200 backports. Patch and post-patch source "
+                    "hashes are locked in sources.env; exact patches are in "
+                    "the corresponding build-pipeline source archive."
+                ),
                 "gcc-runtime": (
                     "Static GCC runtime selected from the controlled Linux compiler; "
                     "the build record binds its measured version to that compiler."
@@ -1755,6 +1774,12 @@ def copy_source_assets(
     for name, expected_hash in expected_hashes.items():
         if sha256_file(source / name) != expected_hash:
             raise ValueError(f"source asset checksum mismatch: {name}")
+    for name, key in (
+        ("patches/musl-CVE-2026-6042.patch", "MUSL_ICONV_PATCH_SHA256"),
+        ("patches/musl-CVE-2026-40200.patch", "MUSL_QSORT_PATCH_SHA256"),
+    ):
+        if sha256_file(source / name) != sources[key]:
+            raise ValueError(f"source security patch checksum mismatch: {name}")
 
     copied: list[dict[str, object]] = []
     scripts_name = f"ffmpeg-{release_version(sources)}-build-scripts.tar.gz"

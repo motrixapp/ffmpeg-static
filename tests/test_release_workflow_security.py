@@ -14,6 +14,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseWorkflowSecurityTests(unittest.TestCase):
+    def test_windows_ci_parses_the_current_native_contract_not_removed_docs(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        native = workflow.split("  windows-native-smoke:\n", 1)[1]
+        self.assertIn("Parse the native Windows smoke contract", native)
+        self.assertIn(
+            "$contract = Get-Content -LiteralPath scripts/motrix-media-smoke.ps1 -Raw",
+            native,
+        )
+        self.assertIn("[scriptblock]::Create($contract) | Out-Null", native)
+        self.assertNotIn("SECURITY.md -Raw", native)
+        self.assertNotIn("$blocks", native)
+        self.assertIn("Get-AuthenticodeSignature", native)
+        self.assertIn("'NotSigned'", native)
+        self.assertIn("-FFmpegPath $ffmpeg", native)
+        self.assertIn("-FFprobePath $ffprobe", native)
+
     def test_inline_python_is_isolated_and_signing_secrets_are_not_exported(self) -> None:
         for workflow_path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             workflow = workflow_path.read_text(encoding="utf-8")

@@ -112,6 +112,14 @@ jobs:
               output.write(f"formal_release={os.environ['FORMAL_RELEASE']}\n")
           PY
 
+      - name: Require a current review of Action dependency risks before formal release
+        if: ${{ steps.release.outputs.formal_release == 'true' }}
+        run: |
+          /usr/bin/python3 -I scripts/validate_action_review.py \
+            --review security/action-risk-review.json \
+            --audit-report security/action-dependency-audit.json \
+            --workflows .github/workflows
+
       - name: Bind requested remote tag to the subject commit
         id: trust
         env:
@@ -310,7 +318,7 @@ jobs:
         run: install -m 0644 release-subject/sources.env sources.env
 
       - name: Restore locked source cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: build/source-cache/downloads
           key: ffmpeg-static-sources-${{ runner.os }}-${{ hashFiles('sources.env') }}
@@ -346,6 +354,7 @@ jobs:
             "$source_dir/scripts"
           install -m 0644 .github/actionlint.yaml \
             "$source_dir/.github/actionlint.yaml"
+          install -m 0644 .gitattributes "$source_dir/.gitattributes"
           for archive in \
             "$FFMPEG_ARCHIVE" \
             "$FFMPEG_SIGNATURE_ARCHIVE" \
@@ -376,8 +385,16 @@ jobs:
             x264-x86inc-ISC.txt; do
             install -m 0644 "licenses/${license}" "$source_dir/licenses/${license}"
           done
+          mkdir -p "$source_dir/patches" "$source_dir/security"
+          install -m 0644 patches/musl-CVE-2026-6042.patch "$source_dir/patches/"
+          install -m 0644 patches/musl-CVE-2026-40200.patch "$source_dir/patches/"
+          install -m 0644 security/action-risk-review.json "$source_dir/security/"
+          install -m 0644 security/action-dependency-audit.json "$source_dir/security/"
           for script in \
+            apply_musl_patches.py \
+            validate_action_review.py \
             audit_workflow_actions.py \
+            audit_action_dependencies.py \
             assemble-release.py \
             build.sh \
             common.sh \
@@ -3279,12 +3296,12 @@ jobs:
           PY
 
       - name: Generate GitHub build provenance
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: dist/*
 
       - name: Generate signed SBOM attestation for all six archives
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             dist/ffmpeg-*-darwin-arm64.zip

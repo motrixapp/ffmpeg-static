@@ -35,6 +35,31 @@ The maintainers will coordinate validation, upstream disclosure when needed,
 and a replacement release. Please allow time for a private assessment before
 publishing details.
 
+## Current release engineering hold
+
+As of 2026-09-30, official immutable GitHub Actions still have vulnerable
+runtime npm lock entries. Updating an Action tag is not evidence that its
+transitive dependencies are all fixed. The conservative, development-dependency
+excluded inventory is recorded in
+[`security/action-dependency-audit.json`](security/action-dependency-audit.json).
+It is a package inventory, not a claim that every advisory is exploitable in
+this workflow or included in the Action's executed bundle.
+
+Formal releases are currently **blocked** by
+[`security/action-risk-review.json`](security/action-risk-review.json).
+The protected-main prepare job checks this gate before cache restoration,
+source compilation, environment approvals, or signing/publishing credentials.
+An approval must bind every exact Action commit, the SHA-256 of the complete
+advisory evidence, every inventoried advisory, and a same-day refreshed scan.
+Reviews expire after at most 14 days. No dispatch input or environment variable
+can override the gate. Unsigned CI/test builds remain available for validation,
+not distribution. Do not interpret this hold as a new released binary.
+
+The weekly dependency audit queries GitHub's advisory database for all runtime
+package versions and fails on High/Critical findings or API errors. A red audit
+must be assessed separately from ordinary build CI; a green compilation test
+does not resolve a dependency advisory.
+
 ## Verify a download
 
 Download only from this repository's immutable GitHub Releases. For an explicit
@@ -55,8 +80,8 @@ the commands download those files and intentionally refuse overwrite prompts.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.1-motrix.2
-asset=ffmpeg-9.0.1-motrix.2-linux-x64.tar.gz
+tag=v9.0.2-motrix.1
+asset=ffmpeg-9.0.2-motrix.1-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 expected_tag_signer_fingerprint=${MOTRIX_RELEASE_TAG_SIGNER_FINGERPRINT:?export the trusted Motrix release-tag signer fingerprint}
 printf '%s\n' "$expected_tag_signer_fingerprint" \
@@ -394,7 +419,7 @@ effective component license is `LGPL-2.1-or-later`; compiled musl is
 `MIT AND SunPro`. Reducing any target to GPL alone is invalid.
 
 `THIRD-PARTY-NOTICES.txt` is generated from fresh locked FFmpeg, x264, LAME,
-musl, and fortify-headers trees and must be exactly 4,468,999 bytes with the
+musl, and fortify-headers trees and must be exactly 4,469,033 bytes with the
 SHA-256 locked in `sources.env`. A formal Release publishes eight corresponding
 source archives: FFmpeg, x264, LAME, musl, fortify-headers, NASM, the llvm-mingw
 build recipe, and LLVM runtime. NASM is build-only: every x64 build compiles it
@@ -409,6 +434,15 @@ does not republish the complete mingw-w64 audit tree because
 that upstream tree includes disputed Cephes/Moshier material excluded from the
 linked binaries; the upstream revision, URL, and archive SHA-256 remain locked
 and represented in provenance/SBOM records.
+
+musl 1.2.6 remains the latest stable upstream release, but our compiled Linux
+libc includes the official CVE-2026-6042 (`iconv`) and CVE-2026-40200 (`qsort`)
+backports. Their exact patch bytes and application script are distributed in
+the build-pipeline source archive; both patch hashes and all three patched
+source-file hashes are locked in `sources.env`. Application rejects fuzz,
+offsets, changed patch bytes, and changed result bytes. The upstream source
+archive is kept byte-for-byte unchanged, and notices are generated only after
+the backports have passed validation.
 
 The consumer schemas are also security boundaries: `BUILD-INFO.json` is
 schema 1, `LICENSES.json` schema 2, per-asset metadata schema 2, and
