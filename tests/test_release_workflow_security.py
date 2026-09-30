@@ -210,17 +210,11 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
         self.assertIn('"$disassembly_file" "$fail_address" "$TARGET_ARCH"', verifier)
         self.assertNotIn("TARGET_NODE_ARCH", verifier)
 
-    def test_annotated_tag_name_and_signed_payload_are_bound_twice(self) -> None:
+    def test_annotated_tag_name_and_raw_object_are_bound_twice(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-        self.assertEqual(
-            workflow.count('tag.get("tag") != os.environ["RELEASE_TAG"]'), 2
-        )
-        self.assertEqual(
-            workflow.count('headers.get("tag") != os.environ["RELEASE_TAG"]'), 2
-        )
-        self.assertEqual(
-            workflow.count('headers.get("object") != os.environ["EVENT_COMMIT"]'), 2
-        )
+        self.assertEqual(workflow.count("scripts/validate_release_tag.py"), 2)
+        self.assertEqual(workflow.count('git cat-file tag "$direct"'), 2)
+        self.assertEqual(workflow.count('--tag "$RELEASE_TAG" --object-sha "$direct" --commit'), 2)
 
     def test_signed_windows_job_loads_hyphenated_archive_validator_explicitly(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -462,20 +456,18 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
         document = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
         self.assertIn("ffmpeg-manifest.json", document)
         self.assertIn("releaseTagObjectSha", document)
-        self.assertIn("MOTRIX_RELEASE_TAG_SIGNER_FINGERPRINT", document)
-        self.assertIn("MOTRIX_RELEASE_TAG_SIGNING_PUBLIC_KEY", document)
-        self.assertIn(".releaseTagSignerFingerprint == $signer", document)
+        self.assertNotIn("MOTRIX_RELEASE_TAG_SIGNER_FINGERPRINT", document)
+        self.assertNotIn("MOTRIX_RELEASE_TAG_SIGNING_PUBLIC_KEY", document)
+        self.assertIn('verify-manifest --directory . --tag "$tag"', document)
         self.assertIn("[.targets[] | select(.archive == $asset)]", document)
         self.assertIn("manifest_asset_sha", document)
         self.assertIn("manifest_asset_size", document)
-        self.assertIn(".verification.signature", document)
-        self.assertIn(".verification.payload", document)
-        self.assertIn("--no-auto-key-retrieve", document)
-        self.assertIn('NR == 1 { valid = ($0 == "object " object)', document)
-        self.assertIn('$2 == "VALIDSIG"', document)
+        self.assertNotIn(".verification.signature", document)
+        self.assertNotIn(".verification.payload", document)
+        self.assertIn('.object | select(.type == "tag") | .sha', document)
+        self.assertIn('test "$remote_tag_object" = "$tag_object"', document)
         self.assertIn('git/tags/$tag_object', document)
         self.assertIn('--source-digest "$control_commit"', document)
-        self.assertIn('[0-9A-F]{40}|[0-9A-F]{64}', document)
         self.assertNotIn("v9.0.1-motrix.1", document)
         self.assertNotIn("ffmpeg-9.0.1-motrix.1", document)
 
