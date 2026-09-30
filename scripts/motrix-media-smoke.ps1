@@ -127,11 +127,15 @@ function Assert-ListingToken {
 
 $versionOutput = (& $FFmpegPath -version 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0) {
-  throw 'ffmpeg -version failed'
+  $exitCode = $LASTEXITCODE
+  $exitHex = '{0:X8}' -f ($exitCode -band 0xFFFFFFFFL)
+  throw "ffmpeg -version failed with exit code $exitCode (0x$exitHex)`n$versionOutput"
 }
 $probeVersionOutput = (& $FFprobePath -version 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0) {
-  throw 'ffprobe -version failed'
+  $exitCode = $LASTEXITCODE
+  $exitHex = '{0:X8}' -f ($exitCode -band 0xFFFFFFFFL)
+  throw "ffprobe -version failed with exit code $exitCode (0x$exitHex)`n$probeVersionOutput"
 }
 if ($versionOutput -notmatch '--enable-libx264' -or
     $versionOutput -notmatch '--enable-libmp3lame' -or
