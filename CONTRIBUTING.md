@@ -30,6 +30,12 @@ verification on every affected target.
   `10.0`, and both macOS targets use the locked `MACOS_MIN_VERSION`. Preserve
   the exact value in `BUILD-INFO.json`, per-asset metadata, and the manifest;
   never substitute one Linux architecture's floor for the other.
+- Windows uses PE OS version `10.0` and `_WIN32_WINNT`/`WINVER=0x0A00`,
+  but PE subsystem version `6.2` for MinGW loader compatibility. Subsystem
+  `6.3` or later requires an MSVC-style load-config SecurityCookie that this
+  CRT does not provide ([upstream issue](https://github.com/mstorsjo/llvm-mingw/issues/511)).
+  Do not equate that field with the supported OS floor or disable CFG/SSP to
+  work around startup failures. Both Windows architectures require native tests.
 - The `motrix-full-gpl` profile keeps `GPL-2.0-or-later` as its principal
   copyleft license, with `--enable-gpl`, `--enable-libx264`, and
   `--enable-libmp3lame`. That profile value is not the complete effective

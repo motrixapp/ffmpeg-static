@@ -187,7 +187,7 @@ jobs:
           compression-level: 0
 
   windows-native-smoke:
-    name: Native unsigned smoke ${{ matrix.target }}
+    name: ${{ inputs.windows_artifact_run_id != '' && 'Diagnostic native unsigned smoke' || 'Native unsigned smoke' }} ${{ matrix.target }}
     needs:
       - lint-and-test
       - build
@@ -227,37 +227,6 @@ jobs:
           github-token: ${{ github.token }}
           path: dist
           digest-mismatch: error
-
-      - name: Diagnose PE loader compatibility on disposable copies
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_artifact_run_id != '' }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Set-StrictMode -Version Latest
-          $archive = @(Get-ChildItem -LiteralPath dist -Filter '*.zip' -File)[0]
-          $probeDir = Join-Path $env:RUNNER_TEMP 'motrix-pe-loader-diagnostics'
-          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $probeDir
-          $original = [IO.File]::ReadAllBytes((Join-Path $probeDir 'ffmpeg.exe'))
-          $optional = [BitConverter]::ToInt32($original, 0x3c) + 24
-          foreach ($variant in @('original', 'subsystem-6.2', 'os-6.2', 'both-6.2', 'without-cfg')) {
-            $bytes = [byte[]]$original.Clone()
-            if ($variant -in @('subsystem-6.2', 'both-6.2')) {
-              [BitConverter]::GetBytes([uint16]6).CopyTo($bytes, $optional + 48)
-              [BitConverter]::GetBytes([uint16]2).CopyTo($bytes, $optional + 50)
-            }
-            if ($variant -in @('os-6.2', 'both-6.2')) {
-              [BitConverter]::GetBytes([uint16]6).CopyTo($bytes, $optional + 40)
-              [BitConverter]::GetBytes([uint16]2).CopyTo($bytes, $optional + 42)
-            }
-            if ($variant -eq 'without-cfg') {
-              $flags = [BitConverter]::ToUInt16($bytes, $optional + 70) -band 0xbfff
-              [BitConverter]::GetBytes([uint16]$flags).CopyTo($bytes, $optional + 70)
-            }
-            $probe = Join-Path $probeDir "$variant.exe"
-            [IO.File]::WriteAllBytes($probe, $bytes)
-            $output = & $probe -version 2>&1
-            Write-Output "$variant exit=$LASTEXITCODE output=$($output | Select-Object -First 1)"
-          }
 
       - name: Run native encode, decode, filter, muxer, and FFprobe smoke tests
         shell: pwsh

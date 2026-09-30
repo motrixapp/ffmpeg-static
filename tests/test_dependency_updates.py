@@ -220,6 +220,27 @@ class DependencyUpdateTests(unittest.TestCase):
             "patches/musl-CVE-2026-40200.patch -text -whitespace",
         })
 
+    def test_windows_loader_compatibility_preserves_security_and_os_contract(self) -> None:
+        sources = pipeline_lib.load_sources()
+        for target in ("win32-x64", "win32-arm64"):
+            arguments = pipeline_lib.expected_configure_args(target, sources)
+            joined = " ".join(arguments)
+            self.assertIn("--major-subsystem-version,6,--minor-subsystem-version,2", joined)
+            self.assertIn("--major-os-version,10,--minor-os-version,0", joined)
+            for flag in ("-mguard=cf", "-fstack-protector-strong", "--nxcompat", "--dynamicbase",
+                         "--high-entropy-va", "-D_WIN32_WINNT=0x0A00", "-DWINVER=0x0A00"):
+                self.assertIn(flag, joined)
+        verifier = (ROOT / "scripts/verify-binary.sh").read_text()
+        self.assertIn("'MajorSubsystemVersion: 6'", verifier)
+        self.assertIn("'MinorSubsystemVersion: 2'", verifier)
+
+    def test_reused_artifacts_cannot_satisfy_required_native_ci_checks(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        job = workflow.split("  windows-native-smoke:", 1)[1]
+        self.assertIn("inputs.windows_artifact_run_id != '' && 'Diagnostic native unsigned smoke'", job)
+        self.assertIn("|| 'Native unsigned smoke'", job)
+        self.assertNotIn("WriteAllBytes", job)
+
 
 if __name__ == "__main__":
     unittest.main()

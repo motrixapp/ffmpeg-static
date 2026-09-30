@@ -858,8 +858,8 @@ def expected_configure_args(target: str, sources: dict[str, str]) -> list[str]:
         ldflags = (
             "-static -mguard=cf "
             "-Wl,--nxcompat,--dynamicbase,--high-entropy-va,--major-os-version,10,"
-            "--minor-os-version,0,--major-subsystem-version,10,"
-            "--minor-subsystem-version,0"
+            "--minor-os-version,0,--major-subsystem-version,6,"
+            "--minor-subsystem-version,2"
         )
         commands = (
             f"{triplet}-clang",

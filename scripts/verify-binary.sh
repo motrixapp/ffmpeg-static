@@ -792,8 +792,8 @@ verify_windows_linkage() {
   for field in \
     'MajorOperatingSystemVersion: 10' \
     'MinorOperatingSystemVersion: 0' \
-    'MajorSubsystemVersion: 10' \
-    'MinorSubsystemVersion: 0' \
+    'MajorSubsystemVersion: 6' \
+    'MinorSubsystemVersion: 2' \
     'DYNAMIC_BASE' 'HIGH_ENTROPY_VA' 'NX_COMPAT' 'GUARD_CF' \
     'CF_INSTRUMENTED' 'CF_FUNCTION_TABLE_PRESENT'; do
     grep -Fq "$field" <<<"$headers" || die "PE hardening field is missing (${field}): ${path}"
