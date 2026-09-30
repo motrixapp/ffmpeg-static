@@ -95,3 +95,20 @@ jobs:
 
       - name: Ensure the audit did not modify repository inputs
         run: git diff --exit-code
+
+      - name: Audit runtime npm dependencies of every immutable Action
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          /usr/bin/python3 -I scripts/audit_action_dependencies.py .github/workflows \
+            > build/action-dependency-audit.json
+
+      - name: Upload dependency advisory evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: action-dependency-audit-${{ github.run_id }}
+          path: build/action-dependency-audit.json
+          if-no-files-found: warn
+          retention-days: 14

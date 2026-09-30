@@ -260,6 +260,7 @@ MUSL_SOURCE="${WORK_DIR}/src/musl"
 FORTIFY_SOURCE="${WORK_DIR}/src/fortify-headers"
 extract_tar_strip_one "${DOWNLOAD_DIR}/${MUSL_ARCHIVE}" \
   "$MUSL_SOURCE" "$MUSL_SHA256"
+run_clean "$ISOLATED_PYTHON" -I "${SCRIPT_DIR}/apply_musl_patches.py" "$MUSL_SOURCE"
 extract_tar_strip_one "${DOWNLOAD_DIR}/${FORTIFY_HEADERS_ARCHIVE}" \
   "$FORTIFY_SOURCE" "$FORTIFY_HEADERS_SHA256"
 LLVM_MINGW_RECIPE_SOURCE="${WORK_DIR}/src/llvm-mingw-recipe"

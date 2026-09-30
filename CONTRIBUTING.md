@@ -193,6 +193,48 @@ Use the GitHub Actions matrix for the complete release candidate.
    sanitized logs, build records, and hashes to the pull request; do not commit
    generated archives or build directories.
 
+musl's latest stable release currently requires official security backports.
+Keep `patches/musl-CVE-2026-6042.patch` byte-identical to the
+[upstream iconv patch](https://www.openwall.com/lists/musl/2026/04/03/2/1),
+and `patches/musl-CVE-2026-40200.patch` byte-identical to the
+[upstream three-part qsort patch](https://www.openwall.com/lists/musl/2026/04/10/3/1).
+The patch application and post-patch source hashes must pass in source audit
+and each clean build, before notice generation or compilation. Never silently
+drop a backport when changing the musl version. Include the patches and
+application script in the build-pipeline source archive.
+
+LLVM 23.1.2's corresponding-source archive expands to 2,246,337,223 regular-file
+bytes. Only an archive verified against `LLVM_RUNTIME_SHA256` receives the
+2304 MiB aggregate limit; every other source retains the 2 GiB limit. Member,
+compressed-size, path, type, permission, symlink, and count checks still apply.
+
+## Reviewing Action dependency risks
+
+Use the latest reviewed official release pinned to a verified full commit SHA;
+do not add a floating tag, arbitrary fork, or locally rebuilt Action as an
+unreviewed workaround. `audit_action_dependencies.py` reads runtime npm lock
+entries at each exact workflow commit, including nested package versions,
+excludes development-only packages, and queries current GitHub advisories.
+Run it with an authenticated `gh` session:
+
+```sh
+python3 -I scripts/audit_action_dependencies.py .github/workflows
+```
+
+Exit 1 means High/Critical inventory findings; exit 2 means the audit could not
+complete. Neither is a clean security result. Optional runtime packages can
+produce conservative findings; investigate the Action's bundled code and this
+workflow's inputs before making any reachability claim.
+
+Formal publication is intentionally blocked in `security/action-risk-review.json`.
+Do not set it to approved just to make a workflow green. Refresh the complete
+evidence on the review date, assess every advisory (including remaining
+High/Critical items), bind its SHA-256 and every exact Action reference, and
+record the explicit maintainer decision in a protected-main change. If no
+adequate fix or defensible, specifically reviewed exception exists, keep the
+hold. Approval validity is at most 14 days; a changed Action commit or evidence
+invalidates it. Existing signing-environment approvals remain required.
+
 ## Pull request checklist
 
 - Explain the user-visible Motrix capability or security reason for the

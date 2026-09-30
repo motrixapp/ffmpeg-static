@@ -69,7 +69,7 @@ class MotrixMediaContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertEqual(ci.count("scripts/motrix-media-smoke.sh"), 1)
-        self.assertEqual(ci.count("scripts/motrix-media-smoke.ps1"), 1)
+        self.assertEqual(ci.count("& scripts/motrix-media-smoke.ps1"), 1)
         self.assertEqual(release.count("scripts/motrix-media-smoke.sh"), 3)
         self.assertEqual(release.count("scripts/motrix-media-smoke.ps1"), 2)
 
