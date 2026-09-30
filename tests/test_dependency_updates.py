@@ -209,6 +209,17 @@ class DependencyUpdateTests(unittest.TestCase):
         self.assertIn("maximum_total_size=2415919104", common)
         self.assertIn("maximum_member_size = 256 * 1024 * 1024", common)
 
+    def test_patch_byte_preservation_keeps_existing_line_ending_policy(self) -> None:
+        attributes = (ROOT / ".gitattributes").read_text()
+        self.assertIn("* text=auto", attributes)
+        for extension in ("env", "json", "md", "py", "ps1", "sh", "txt", "yaml", "yml", "asc"):
+            self.assertIn(f"*.{extension} text eol=lf", attributes)
+        exceptions = [line for line in attributes.splitlines() if "-whitespace" in line]
+        self.assertEqual(set(exceptions), {
+            "patches/musl-CVE-2026-6042.patch -text -whitespace",
+            "patches/musl-CVE-2026-40200.patch -text -whitespace",
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
