@@ -328,12 +328,18 @@ plan/visibility change, or credential rotation.
 - [ ] Set `EXPECTED_MACOS_TEAM_ID` and `EXPECTED_MACOS_CERT_SHA256` to
   independently reviewed production identities; placeholders and “accept
   whatever is in the PFX” are forbidden. No project OpenPGP/tagger-email
-  variables are required. Before the first public Release, publish the Apple
-  Team ID/leaf certificate SHA-256 and Ed25519 manifest public key/key ID on a
+  variables are required. Keep Apple identity pins as internal release policy;
+  do not require an independent public announcement of them. They remain
+  inspectable in code signatures and signed evidence, not confidential.
+  Before the first public Release, publish only the Ed25519 manifest public key/key ID on a
   stable Motrix-controlled HTTPS trust page outside this repository and its
   Releases. Link it from an official Motrix site or application, record its
   exact canonical URL in `SECURITY.md`, and retain append-only identity history.
   Until this independent trust root is available, keep the first release blocked.
+  Consumers authenticate the manifest with that root before using its Apple
+  identity fields, then compare them against actual code signatures. This
+  intentionally drops the separate out-of-band Apple identity trust anchor;
+  producer-side Team/certificate checks, code signing and notarization stay mandatory.
 - [ ] Populate macOS Environment secrets `MAC_CERTS`,
   `MAC_CERTS_PASSWORD`, `API_KEY`, `API_KEY_ID`, and
   `API_KEY_ISSUER_ID`; put the PEM Ed25519 private key in
