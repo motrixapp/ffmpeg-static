@@ -1,0 +1,55 @@
+.DS_Store
+Thumbs.db
+Desktop.ini
+*~
+*.swp
+*.swo
+
+.idea/
+.vscode/
+
+.venv/
+__pycache__/
+*.py[cod]
+StartupProfileData-*
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Local Obsidian migration staging (internal maintainer documentation)
+.obsidian-export/
+.signing-private/
+.obsidian/
+
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+.envrc
+.direnv/
+
+# Local build and release output
+build/
+dist/
+artifacts/
+release/
+*.log
+
+# Signing and notarization material must never enter the repository
+*.cer
+*.crt
+*.der
+*.pem
+*.p12
+*.pfx
+*.p8
+*.key
+*.keychain
+*.keychain-db
+notarization-result*.json

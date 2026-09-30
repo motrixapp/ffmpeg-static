@@ -1,0 +1,97 @@
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Verify pinned actions and authenticated source locks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install audit prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bzip2 \
+            ca-certificates \
+            curl \
+            gnupg \
+            shellcheck \
+            xz-utils
+
+      - name: Verify every action is GitHub-owned, immutable, and signed upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          references = subprocess.check_output(
+              [sys.executable, "-I", "scripts/audit_workflow_actions.py", ".github/workflows"],
+              text=True,
+          ).splitlines()
+          for reference in references:
+              repository, commit = reference.rsplit("@", 1)
+              response = json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repository}/commits/{commit}"], text=True
+              ))
+              verification = response.get("commit", {}).get("verification", {})
+              if response.get("sha") != commit:
+                  raise SystemExit(f"action commit identity mismatch: {repository}@{commit}")
+              if verification.get("verified") is not True:
+                  raise SystemExit(
+                      f"action commit is not verified upstream: {repository}@{commit} "
+                      f"({verification.get('reason')})"
+                  )
+          PY
+
+      - name: Validate lock schema, URLs, scripts, and tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import pathlib
+          import sys
+          import urllib.parse
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import load_sources
+
+          sources = load_sources()
+          for key, value in sources.items():
+              if key.endswith("_URL"):
+                  url = urllib.parse.urlsplit(value)
+                  if url.scheme != "https" or not url.hostname or url.username or url.password:
+                      raise SystemExit(f"{key} must be an unauthenticated HTTPS URL")
+              if key.endswith("_ARCHIVE"):
+                  if pathlib.PurePosixPath(value).name != value or value.startswith("-"):
+                      raise SystemExit(f"{key} must be a safe basename")
+          PY
+          shellcheck scripts/*.sh
+          python3 -m compileall -q scripts tests
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Re-download and cryptographically authenticate every source
+        run: scripts/fetch-sources.sh win32-x64
+
+      - name: Ensure the audit did not modify repository inputs
+        run: git diff --exit-code

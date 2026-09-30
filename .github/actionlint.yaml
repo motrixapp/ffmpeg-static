@@ -1,0 +1,6 @@
+# GitHub made this hosted-runner label generally available on 2026-08-20.
+# Keep the suppression exact until actionlint's built-in label list catches up.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'label "windows-11-vs2026-arm" is unknown'

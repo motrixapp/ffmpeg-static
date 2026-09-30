@@ -1,0 +1,247 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint and unit tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends shellcheck
+
+      - name: Check scripts and repository hygiene
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git diff --check
+          shellcheck scripts/*.sh
+          python3 -m compileall -q scripts tests
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Require immutable GitHub-owned action references
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -I scripts/audit_workflow_actions.py .github/workflows >/dev/null
+
+  build:
+    name: Build and verify ${{ matrix.target }}
+    needs: lint-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            platform: darwin
+            runner: macos-26
+          - target: darwin-x64
+            platform: darwin
+            runner: macos-26-intel
+          - target: linux-arm64
+            platform: linux
+            runner: ubuntu-22.04-arm
+          - target: linux-x64
+            platform: linux
+            runner: ubuntu-22.04
+          - target: win32-arm64
+            platform: win32
+            runner: ubuntu-22.04
+          - target: win32-x64
+            platform: win32
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore locked source cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build/source-cache/downloads
+          key: ffmpeg-static-sources-${{ matrix.target }}-${{ hashFiles('sources.env') }}
+
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            bzip2 \
+            build-essential \
+            ca-certificates \
+            curl \
+            file \
+            gnupg \
+            pkg-config \
+            python3 \
+            xz-utils
+
+      - name: Install macOS build prerequisites
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          test -x /usr/bin/python3
+          /usr/bin/python3 -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
+          codesign_probe_dir=$(mktemp -d "${RUNNER_TEMP}/motrix-codesign-cli.XXXXXX")
+          trap 'rm -rf -- "$codesign_probe_dir"' EXIT
+          codesign --display --extract-certificates="$codesign_probe_dir/cert" \
+            /bin/ls >/dev/null 2>&1
+          rm -rf -- "$codesign_probe_dir"
+          trap - EXIT
+          brew install gnupg pkg-config
+          python3 -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
+
+      - name: Fetch, authenticate, build, and verify locked inputs
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scripts/fetch-sources.sh "$TARGET"
+          scripts/build.sh "$TARGET"
+          scripts/verify-binary.sh "$TARGET"
+
+      - name: Exercise native encode, decode, filter, muxer, and FFprobe paths
+        if: ${{ matrix.platform != 'win32' }}
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ffmpeg="build/${TARGET}/payload/ffmpeg"
+          ffprobe="build/${TARGET}/payload/ffprobe"
+          smoke_dir=$(mktemp -d "${RUNNER_TEMP}/motrix-ffmpeg-smoke.XXXXXX")
+          trap 'rm -rf -- "$smoke_dir"' EXIT
+          scripts/motrix-media-smoke.sh "$ffmpeg" "$ffprobe" "$smoke_dir"
+
+      - name: Check deterministic unsigned packaging
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          package_dir="build/packages/${TARGET}"
+          first_archive=$(python3 scripts/package-artifact.py \
+            --target "$TARGET" \
+            --payload "build/${TARGET}/payload" \
+            --build-info "build/${TARGET}/build-info.json" \
+            --output-dir "$package_dir")
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            first_sha=$(shasum -a 256 -- "$first_archive" | awk '{print $1}')
+          else
+            first_sha=$(sha256sum -- "$first_archive" | awk '{print $1}')
+          fi
+          second_archive=$(python3 scripts/package-artifact.py \
+            --target "$TARGET" \
+            --payload "build/${TARGET}/payload" \
+            --build-info "build/${TARGET}/build-info.json" \
+            --output-dir "$package_dir")
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            second_sha=$(shasum -a 256 -- "$second_archive" | awk '{print $1}')
+          else
+            second_sha=$(sha256sum -- "$second_archive" | awk '{print $1}')
+          fi
+          [[ "$first_archive" == "$second_archive" && "$first_sha" == "$second_sha" ]]
+
+      - name: Upload unsigned CI package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-${{ matrix.target }}-${{ github.run_id }}
+          path: build/packages/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+  windows-native-smoke:
+    name: Native unsigned smoke ${{ matrix.target }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            runner: windows-2025
+          - target: win32-arm64
+            runner: windows-11-vs2026-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out native smoke contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Parse the documented Windows verification procedure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $document = Get-Content -LiteralPath SECURITY.md -Raw
+          $blocks = [regex]::Matches(
+            $document,
+            '(?ms)^```powershell\r?\n(.*?)^```\r?$'
+          )
+          if ($blocks.Count -ne 1) {
+            throw "Expected exactly one documented PowerShell block, found $($blocks.Count)"
+          }
+          [scriptblock]::Create($blocks[0].Groups[1].Value) | Out-Null
+
+      - name: Download exact unsigned Windows package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ci-${{ matrix.target }}-${{ github.run_id }}
+          path: dist
+          digest-mismatch: error
+
+      - name: Run native encode, decode, filter, muxer, and FFprobe smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+
+          $archives = @(Get-ChildItem -LiteralPath dist -Filter '*.zip' -File)
+          if ($archives.Count -ne 1) {
+            throw "Expected exactly one ZIP, found $($archives.Count)"
+          }
+          $extractDir = Join-Path $env:RUNNER_TEMP 'motrix-ffmpeg-ci-smoke'
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $extractDir
+          $ffmpeg = Join-Path $extractDir 'ffmpeg.exe'
+          $ffprobe = Join-Path $extractDir 'ffprobe.exe'
+          if (-not (Test-Path -LiteralPath $ffmpeg -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $ffprobe -PathType Leaf)) {
+            throw 'Archive is missing ffmpeg.exe or ffprobe.exe'
+          }
+          foreach ($binary in @($ffmpeg, $ffprobe)) {
+            if ((Get-AuthenticodeSignature -FilePath $binary).Status -ne 'NotSigned') {
+              throw "CI package must remain unsigned: $binary"
+            }
+          }
+          & scripts/motrix-media-smoke.ps1 `
+            -FFmpegPath $ffmpeg `
+            -FFprobePath $ffprobe `
+            -WorkDir (Join-Path $extractDir 'motrix-media-smoke')

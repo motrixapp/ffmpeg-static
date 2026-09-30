@@ -1,0 +1,4120 @@
+# SECURITY CONTROL PLANE: a production release is only a workflow_dispatch from
+# protected main in the canonical motrixapp/ffmpeg-static repository with
+# release_tag set. A tag-push run is deliberately unsigned
+# and unprivileged. Repository rulesets must make release tags immutable, restrict
+# their creation, require their commits on protected main, and protect every
+# repository path with catch-all CODEOWNERS coverage. The macos-release-signing,
+# release-manifest-signing, and github-release environments require agalwood's
+# manual confirmation. The single-maintainer profile permits self-review;
+# administrator bypass remains disabled. See CONTRIBUTING.md.
+name: Build and release
+
+on:
+  push:
+    tags:
+      - 'v*-motrix.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing protected tag to sign and publish; leave empty for unsigned artifacts
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ffmpeg-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-sources:
+    name: Authenticate and bind release inputs
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    outputs:
+      ffmpeg-version: ${{ steps.release.outputs.ffmpeg_version }}
+      release-version: ${{ steps.release.outputs.release_version }}
+      release-tag: ${{ steps.release.outputs.release_tag }}
+      formal-release: ${{ steps.release.outputs.formal_release }}
+      event-commit: ${{ steps.trust.outputs.event_commit }}
+      release-created: ${{ steps.trust.outputs.release_created }}
+      tag-object-sha: ${{ steps.trust.outputs.tag_object_sha }}
+      tag-signer-fingerprint: ${{ steps.trust.outputs.tag_signer_fingerprint }}
+      core-artifact-id: ${{ steps.upload-core.outputs.artifact-id }}
+      core-artifact-digest: ${{ steps.upload-core.outputs.artifact-digest }}
+      toolchain-artifact-id: ${{ steps.upload-toolchain.outputs.artifact-id }}
+      toolchain-artifact-digest: ${{ steps.upload-toolchain.outputs.artifact-digest }}
+      sources-artifact-id: ${{ steps.upload-sources.outputs.artifact-id }}
+      sources-artifact-digest: ${{ steps.upload-sources.outputs.artifact-digest }}
+    steps:
+      - name: Check out trusted workflow control revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out the requested release subject
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag || github.sha }}
+          path: release-subject
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate the protected control plane and locked release identity
+        id: release
+        env:
+          CONTROL_REF: ${{ github.ref }}
+          CONTROL_REF_PROTECTED: ${{ github.ref_protected }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CONTROL_SHA: ${{ github.sha }}
+          EVENT_REF_NAME: ${{ github.ref_name }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          formal_release=false
+          if [[ -n "$REQUESTED_TAG" ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+            [[ "$DEFAULT_BRANCH" == main && "$CONTROL_REF" == refs/heads/main ]] || {
+              echo "formal releases require main to remain the canonical default branch" >&2
+              exit 1
+            }
+            [[ "$CONTROL_REF_PROTECTED" == true ]] || {
+              echo "formal releases must be dispatched from protected main" >&2
+              exit 1
+            }
+            formal_release=true
+          fi
+          FORMAL_RELEASE=$formal_release /usr/bin/python3 -I - <<'PY'
+          import os
+          import pathlib
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import load_sources, release_tag, release_version
+
+          sources = load_sources(pathlib.Path("release-subject/sources.env"))
+          tag = release_tag(sources)
+          requested = os.environ.get("REQUESTED_TAG", "")
+          if requested and requested != tag:
+              raise SystemExit(f"requested tag {requested!r} does not match locked tag {tag!r}")
+          if os.environ["GITHUB_EVENT_NAME"] == "push" and (
+              os.environ["EVENT_REF_TYPE"] != "tag" or os.environ["EVENT_REF_NAME"] != tag
+          ):
+              raise SystemExit("pushed tag does not match the locked release tag")
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"ffmpeg_version={sources['FFMPEG_VERSION']}\n")
+              output.write(f"release_version={release_version(sources)}\n")
+              output.write(f"release_tag={tag}\n")
+              output.write(f"formal_release={os.environ['FORMAL_RELEASE']}\n")
+          PY
+
+      - name: Bind requested remote tag to the subject commit
+        id: trust
+        env:
+          ACTUAL_REPOSITORY: ${{ github.repository }}
+          CONTROL_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          EXPECTED_REPOSITORY: motrixapp/ffmpeg-static
+          EXPECTED_RELEASE_TAGGER_EMAIL: ${{ vars.EXPECTED_RELEASE_TAGGER_EMAIL }}
+          EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT: ${{ vars.EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT }}
+          FORMAL_RELEASE: ${{ steps.release.outputs.formal_release }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_TAG_SIGNING_PUBLIC_KEY }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          event_commit=$(git -C release-subject rev-parse 'HEAD^{commit}')
+          [[ "$event_commit" =~ ^[0-9a-f]{40}$ ]]
+          printf 'event_commit=%s\n' "$event_commit" >>"$GITHUB_OUTPUT"
+          control_commit=$(git rev-parse "${CONTROL_SHA}^{commit}")
+          [[ "$control_commit" =~ ^[0-9a-f]{40}$ ]]
+
+          if [[ "$FORMAL_RELEASE" != true ]]; then
+            CONTROL_CREATED=$(git show -s --format=%cI "$control_commit") /usr/bin/python3 -I - <<'PY'
+          import datetime
+          import os
+          import pathlib
+
+          raw_created = os.environ["CONTROL_CREATED"]
+          try:
+              created = datetime.datetime.fromisoformat(raw_created.replace("Z", "+00:00"))
+          except ValueError as error:
+              raise SystemExit("control commit has an invalid committer timestamp") from error
+          if created.tzinfo is None:
+              raise SystemExit("control commit timestamp is missing a timezone")
+          canonical_created = created.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"release_created={canonical_created}\n")
+          PY
+            exit 0
+          fi
+          [[ "$event_commit" == "$control_commit" ]] || {
+            echo "formal release tag must point to the exact protected main dispatch commit" >&2
+            exit 1
+          }
+          [[ "$ACTUAL_REPOSITORY" == "$EXPECTED_REPOSITORY" &&
+             "$EVENT_REPOSITORY" == "$EXPECTED_REPOSITORY" ]] || {
+            echo "release event did not originate from the canonical repository" >&2
+            exit 1
+          }
+
+          verify_remote_tag() {
+            local direct peeled resolved refs
+            refs=$(git ls-remote origin \
+              "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")
+            # The awk field references are intentionally literal.
+            # shellcheck disable=SC2016
+            direct=$(awk -v ref="refs/tags/${RELEASE_TAG}" '$2 == ref { print $1 }' <<<"$refs")
+            # The awk field references are intentionally literal.
+            # shellcheck disable=SC2016
+            peeled=$(awk -v ref="refs/tags/${RELEASE_TAG}^{}" '$2 == ref { print $1 }' <<<"$refs")
+            resolved=${peeled:-$direct}
+            [[ -n "$direct" && -n "$peeled" && "$resolved" == "$event_commit" ]] || {
+              echo "remote release tag does not resolve to the event commit" >&2
+              exit 1
+            }
+            [[ -n "$EXPECTED_RELEASE_TAGGER_EMAIL" && "$EXPECTED_RELEASE_TAGGER_EMAIL" != *$'\n'* ]]
+            [[ "$EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT" =~ ^([0-9A-F]{40}|[0-9A-F]{64})$ ]] || {
+              echo "release tag signer fingerprint is missing or invalid" >&2
+              exit 1
+            }
+            mkdir -p -- build
+            gh api "repos/${EXPECTED_REPOSITORY}/git/tags/${direct}" >build/release-tag-object.json
+            tag_verify_dir=$(mktemp -d "${RUNNER_TEMP}/release-tag-gpg.XXXXXX")
+            chmod 700 "$tag_verify_dir"
+            TAG_OBJECT_SHA=$direct EVENT_COMMIT=$event_commit TAG_VERIFY_DIR=$tag_verify_dir /usr/bin/python3 -I - <<'PY'
+          import datetime
+          import json
+          import os
+          import pathlib
+
+          tag = json.loads(pathlib.Path("build/release-tag-object.json").read_text(encoding="utf-8"))
+          verification = tag.get("verification") or {}
+          target = tag.get("object") or {}
+          tagger = tag.get("tagger") or {}
+          if tag.get("sha") != os.environ["TAG_OBJECT_SHA"]:
+              raise SystemExit("GitHub tag object identity mismatch")
+          if tag.get("tag") != os.environ["RELEASE_TAG"]:
+              raise SystemExit("annotated tag object name does not match the release ref")
+          if target.get("type") != "commit" or target.get("sha") != os.environ["EVENT_COMMIT"]:
+              raise SystemExit("annotated tag does not directly target the release commit")
+          if verification.get("verified") is not True or verification.get("reason") != "valid":
+              raise SystemExit("annotated release tag signature is not valid")
+          signature = verification.get("signature")
+          payload = verification.get("payload")
+          public_key = os.environ.get("RELEASE_TAG_SIGNING_PUBLIC_KEY", "")
+          if not isinstance(signature, str) or not signature or len(signature) > 131072:
+              raise SystemExit("annotated tag lacks a bounded detached signature")
+          if not isinstance(payload, str) or not payload or len(payload) > 1048576:
+              raise SystemExit("annotated tag lacks a bounded signed payload")
+          header_text, separator, _message = payload.partition("\n\n")
+          if not separator:
+              raise SystemExit("annotated tag signed payload has no header boundary")
+          headers = {}
+          for line in header_text.splitlines():
+              key, space, value = line.partition(" ")
+              if not space or key in headers:
+                  raise SystemExit("annotated tag signed payload has malformed headers")
+              headers[key] = value
+          if (
+              headers.get("object") != os.environ["EVENT_COMMIT"]
+              or headers.get("type") != "commit"
+              or headers.get("tag") != os.environ["RELEASE_TAG"]
+          ):
+              raise SystemExit("annotated tag signed payload identity mismatch")
+          if not public_key or len(public_key) > 131072:
+              raise SystemExit("release tag signing public key is missing or oversized")
+          verify_dir = pathlib.Path(os.environ["TAG_VERIFY_DIR"])
+          material = {
+              "signature.asc": signature,
+              "payload.txt": payload,
+              "public-key.asc": public_key,
+          }
+          for name, contents in material.items():
+              path = verify_dir / name
+              path.write_bytes(contents.encode("utf-8"))
+              path.chmod(0o600)
+          if tagger.get("email") != os.environ["EXPECTED_RELEASE_TAGGER_EMAIL"]:
+              raise SystemExit("annotated release tag has an unexpected signed tagger email")
+          raw_created = tagger.get("date")
+          if not isinstance(raw_created, str):
+              raise SystemExit("annotated release tag is missing its tagger timestamp")
+          try:
+              created = datetime.datetime.fromisoformat(raw_created.replace("Z", "+00:00"))
+          except ValueError as error:
+              raise SystemExit("annotated release tag has an invalid tagger timestamp") from error
+          if created.tzinfo is None or created.utcoffset() != datetime.timedelta(0):
+              raise SystemExit("annotated release tag timestamp must be UTC")
+          canonical_created = created.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"release_created={canonical_created}\n")
+              output.write(f"tag_object_sha={os.environ['TAG_OBJECT_SHA']}\n")
+              output.write(
+                  "tag_signer_fingerprint="
+                  f"{os.environ['EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT']}\n"
+              )
+          PY
+            if ! gpg --batch --no-autostart --homedir "$tag_verify_dir" --quiet \
+              --import "$tag_verify_dir/public-key.asc" >/dev/null 2>&1; then
+              echo "could not import the pinned release tag signing public key" >&2
+              exit 1
+            fi
+            mapfile -t tag_key_fingerprints < <(
+              gpg --batch --no-autostart --homedir "$tag_verify_dir" --with-colons \
+                --list-keys 2>/dev/null \
+                | awk -F: '$1 == "pub" {want=1; next} want && $1 == "fpr" {print toupper($10); want=0}'
+            )
+            (( ${#tag_key_fingerprints[@]} == 1 )) \
+              && [[ "${tag_key_fingerprints[0]}" == "$EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT" ]] || {
+              echo "release tag public key does not match the pinned fingerprint" >&2
+              exit 1
+            }
+            tag_status="$tag_verify_dir/verify.status"
+            if ! gpg --batch --no-autostart --no-auto-key-retrieve \
+              --homedir "$tag_verify_dir" --status-fd=1 \
+              --verify "$tag_verify_dir/signature.asc" "$tag_verify_dir/payload.txt" \
+              >"$tag_status" 2>/dev/null; then
+              echo "release tag did not verify with the pinned OpenPGP key" >&2
+              exit 1
+            fi
+            if ! awk -v expected="$EXPECTED_RELEASE_TAG_SIGNER_FINGERPRINT" '
+              $2 == "VALIDSIG" && ($10 == 8 || $10 == 9 || $10 == 10) \
+                && (toupper($3) == expected || toupper($NF) == expected) { valid++ }
+              $2 == "BADSIG" || $2 == "ERRSIG" || $2 == "NO_PUBKEY" \
+                || $2 == "EXPSIG" || $2 == "EXPKEYSIG" || $2 == "REVKEYSIG" \
+                || $2 == "KEYEXPIRED" || $2 == "SIGEXPIRED" { invalid = 1 }
+              END { exit !(valid == 1 && !invalid) }
+            ' "$tag_status"; then
+              echo "release tag signature fingerprint validation failed" >&2
+              exit 1
+            fi
+            rm -rf -- "$tag_verify_dir"
+          }
+          verify_remote_tag
+
+          git fetch --no-tags origin \
+            "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          git merge-base --is-ancestor \
+            "$event_commit" "refs/remotes/origin/${DEFAULT_BRANCH}" || {
+            echo "release commit is not reachable from the protected default branch" >&2
+            exit 1
+          }
+
+      - name: Install the subject lock into the trusted control checkout
+        run: install -m 0644 release-subject/sources.env sources.env
+
+      - name: Restore locked source cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build/source-cache/downloads
+          key: ffmpeg-static-sources-${{ runner.os }}-${{ hashFiles('sources.env') }}
+
+      - name: Install source verification prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bzip2 \
+            ca-certificates \
+            curl \
+            gnupg \
+            xz-utils
+
+      - name: Download and authenticate every locked input
+        run: scripts/fetch-sources.sh win32-x64
+
+      - name: Stage authenticated build and redistributable source inputs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # shellcheck disable=SC1091
+          source sources.env
+          core_dir=build/authenticated-core-sources
+          toolchain_dir=build/authenticated-windows-toolchain
+          source_dir=build/source-assets
+          mkdir -p -- \
+            "$core_dir" \
+            "$toolchain_dir" \
+            "$source_dir/.github/workflows" \
+            "$source_dir/keys" \
+            "$source_dir/licenses" \
+            "$source_dir/scripts"
+          install -m 0644 .github/actionlint.yaml \
+            "$source_dir/.github/actionlint.yaml"
+          for archive in \
+            "$FFMPEG_ARCHIVE" \
+            "$FFMPEG_SIGNATURE_ARCHIVE" \
+            "$X264_ARCHIVE" \
+            "$LAME_ARCHIVE" \
+            "$NASM_ARCHIVE" \
+            "$MUSL_ARCHIVE" \
+            "$FORTIFY_HEADERS_ARCHIVE" \
+            "$LLVM_MINGW_RECIPE_ARCHIVE"; do
+            install -m 0644 "build/source-cache/downloads/${archive}" "$core_dir/"
+            install -m 0644 "build/source-cache/downloads/${archive}" "$source_dir/"
+          done
+          install -m 0644 \
+            "build/source-cache/downloads/${LLVM_RUNTIME_ARCHIVE}" \
+            "$source_dir/${LLVM_RUNTIME_ARCHIVE}"
+          install -m 0644 \
+            "build/source-cache/downloads/${LLVM_MINGW_ARCHIVE}" \
+            "$toolchain_dir/"
+          install -m 0644 sources.env "$source_dir/sources.env"
+          install -m 0644 sources.env "$core_dir/sources.env"
+          install -m 0644 LICENSE "$source_dir/LICENSE"
+          install -m 0644 keys/ffmpeg-release-signing-key.asc \
+            "$source_dir/keys/ffmpeg-release-signing-key.asc"
+          install -m 0644 keys/manifest-ed25519.pub "$source_dir/keys/manifest-ed25519.pub"
+          for license in \
+            FFmpeg-IJG-NOTICE.txt \
+            GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt \
+            x264-x86inc-ISC.txt; do
+            install -m 0644 "licenses/${license}" "$source_dir/licenses/${license}"
+          done
+          for script in \
+            audit_workflow_actions.py \
+            assemble-release.py \
+            build.sh \
+            common.sh \
+            fetch-sources.sh \
+            finalize_signing_grant.py \
+            generate-third-party-notices.py \
+            motrix-media-smoke.ps1 \
+            motrix-media-smoke.sh \
+            notarize-macos.sh \
+            package-artifact.py \
+            parse_pe_imports.py \
+            pipeline_lib.py \
+            resolve-signtool.ps1 \
+            sign-macos.sh \
+            sign_release_manifest.py \
+            validate-notarization.py \
+            validate_signing_input.py \
+            verify_authenticode_delta.py \
+            verify_macho_codesign_delta.py \
+            verify-binary.sh; do
+            install -m 0644 "scripts/${script}" "$source_dir/scripts/${script}"
+          done
+          for workflow in ci.yml dependency-audit.yml release.yml; do
+            install -m 0644 ".github/workflows/${workflow}" \
+              "$source_dir/.github/workflows/${workflow}"
+          done
+
+      - name: Upload authenticated core sources
+        id: upload-core
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: authenticated-core-sources-${{ github.run_id }}
+          path: build/authenticated-core-sources/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Upload authenticated Windows toolchain
+        id: upload-toolchain
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: authenticated-windows-toolchain-${{ github.run_id }}
+          path: build/authenticated-windows-toolchain/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Upload redistributable source assets
+        id: upload-sources
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: redistributable-sources-${{ github.run_id }}
+          path: build/source-assets/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 36
+          compression-level: 0
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: prepare-sources
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            platform: darwin
+            runner: macos-26
+          - target: darwin-x64
+            platform: darwin
+            runner: macos-26-intel
+          - target: linux-arm64
+            platform: linux
+            runner: ubuntu-22.04-arm
+          - target: linux-x64
+            platform: linux
+            runner: ubuntu-22.04
+          - target: win32-arm64
+            platform: win32
+            runner: ubuntu-22.04
+          - target: win32-x64
+            platform: win32
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download bound authenticated core sources
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.core-artifact-id }}
+          path: build/source-cache/downloads
+          digest-mismatch: error
+
+      - name: Download bound authenticated Windows toolchain
+        if: matrix.platform == 'win32'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
+          path: build/source-cache/downloads
+          digest-mismatch: error
+
+      - name: Install the bound release lock
+        run: install -m 0644 build/source-cache/downloads/sources.env sources.env
+
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            bzip2 \
+            build-essential \
+            ca-certificates \
+            curl \
+            file \
+            gnupg \
+            pkg-config \
+            python3 \
+            xz-utils
+
+      - name: Install macOS build prerequisites
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          test -x /usr/bin/python3
+          /usr/bin/python3 -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
+          brew install gnupg pkg-config
+          python3 -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
+
+      - name: Re-authenticate inputs, build, and verify
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scripts/fetch-sources.sh "$TARGET"
+          scripts/build.sh "$TARGET"
+          scripts/verify-binary.sh "$TARGET"
+
+      - name: Exercise native media operations before packaging
+        if: ${{ matrix.platform != 'win32' }}
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ffmpeg="build/${TARGET}/payload/ffmpeg"
+          ffprobe="build/${TARGET}/payload/ffprobe"
+          smoke_dir=$(mktemp -d "${RUNNER_TEMP}/motrix-ffmpeg-smoke.XXXXXX")
+          trap 'rm -rf -- "$smoke_dir"' EXIT
+          scripts/motrix-media-smoke.sh "$ffmpeg" "$ffprobe" "$smoke_dir"
+
+      - name: Package unsigned final candidate
+        if: ${{ needs.prepare-sources.outputs.formal-release != 'true' || matrix.platform == 'linux' }}
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/package-artifact.py \
+            --target "$TARGET" \
+            --payload "build/${TARGET}/payload" \
+            --build-info "build/${TARGET}/build-info.json" \
+            --output-dir "build/packages/${TARGET}"
+
+      - name: Upload final candidate
+        if: ${{ needs.prepare-sources.outputs.formal-release != 'true' || matrix.platform == 'linux' }}
+        id: upload-release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.target }}
+          path: build/packages/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Record final candidate artifact binding
+        if: ${{ needs.prepare-sources.outputs.formal-release != 'true' || matrix.platform == 'linux' }}
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload-release.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload-release.outputs.artifact-id }}
+          ARTIFACT_NAME: release-${{ matrix.target }}
+          HEAD_SHA: ${{ github.sha }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json, os, pathlib, re
+          artifact_id = os.environ["ARTIFACT_ID"]
+          digest = os.environ["ARTIFACT_DIGEST"].lower()
+          if not re.fullmatch(r"[1-9][0-9]*", artifact_id) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("upload-artifact returned an invalid artifact identity")
+          path = pathlib.Path("build/bindings") / f"{os.environ['TARGET']}.json"
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps({
+              "schemaVersion": 1,
+              "target": os.environ["TARGET"],
+              "artifactName": os.environ["ARTIFACT_NAME"],
+              "artifactId": int(artifact_id),
+              "artifactDigest": digest,
+              "runId": int(os.environ["GITHUB_RUN_ID"]),
+              "headSha": os.environ["HEAD_SHA"],
+          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload final candidate binding
+        if: ${{ needs.prepare-sources.outputs.formal-release != 'true' || matrix.platform == 'linux' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-binding-${{ matrix.target }}
+          path: build/bindings/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
+
+      - name: Stage exact signing input
+        if: ${{ needs.prepare-sources.outputs.formal-release == 'true' && matrix.platform != 'linux' }}
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          stage="build/signing-input/${TARGET}"
+          mkdir -p "$stage"
+          cp -R "build/${TARGET}/payload" "$stage/payload"
+          install -m 0644 "build/${TARGET}/build-info.json" "$stage/build-info.json"
+          install -m 0644 sources.env "$stage/sources.env"
+          if [[ "$PLATFORM" == win32 ]]; then
+            mkdir -p "$stage/work/link-maps"
+            for evidence in \
+              ffmpeg.map \
+              ffmpeg.link-trace.txt \
+              ffprobe.map \
+              ffprobe.link-trace.txt; do
+              install -m 0644 \
+                "build/${TARGET}/work/link-maps/${evidence}" \
+                "$stage/work/link-maps/${evidence}"
+            done
+          fi
+
+      - name: Upload signing input
+        if: ${{ needs.prepare-sources.outputs.formal-release == 'true' && matrix.platform != 'linux' }}
+        id: upload-signing-input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signing-input-${{ matrix.target }}
+          path: build/signing-input/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Record signing input artifact binding
+        if: ${{ needs.prepare-sources.outputs.formal-release == 'true' && matrix.platform != 'linux' }}
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload-signing-input.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload-signing-input.outputs.artifact-id }}
+          ARTIFACT_NAME: signing-input-${{ matrix.target }}
+          HEAD_SHA: ${{ github.sha }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json, os, pathlib, re
+          artifact_id = os.environ["ARTIFACT_ID"]
+          digest = os.environ["ARTIFACT_DIGEST"].lower()
+          if not re.fullmatch(r"[1-9][0-9]*", artifact_id) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("upload-artifact returned an invalid artifact identity")
+          path = pathlib.Path("build/signing-bindings") / f"{os.environ['TARGET']}.json"
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps({
+              "schemaVersion": 1,
+              "target": os.environ["TARGET"],
+              "artifactName": os.environ["ARTIFACT_NAME"],
+              "artifactId": int(artifact_id),
+              "artifactDigest": digest,
+              "runId": int(os.environ["GITHUB_RUN_ID"]),
+              "headSha": os.environ["HEAD_SHA"],
+          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload signing input binding
+        if: ${{ needs.prepare-sources.outputs.formal-release == 'true' && matrix.platform != 'linux' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signing-input-binding-${{ matrix.target }}
+          path: build/signing-bindings/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
+
+  resolve-signing-inputs:
+    name: Bind exact signing inputs
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      darwin_arm64_id: ${{ steps.resolve.outputs.darwin_arm64_id }}
+      darwin_arm64_digest: ${{ steps.resolve.outputs.darwin_arm64_digest }}
+      darwin_x64_id: ${{ steps.resolve.outputs.darwin_x64_id }}
+      darwin_x64_digest: ${{ steps.resolve.outputs.darwin_x64_digest }}
+      win32_arm64_id: ${{ steps.resolve.outputs.win32_arm64_id }}
+      win32_arm64_digest: ${{ steps.resolve.outputs.win32_arm64_digest }}
+      win32_x64_id: ${{ steps.resolve.outputs.win32_x64_id }}
+      win32_x64_digest: ${{ steps.resolve.outputs.win32_x64_digest }}
+    steps:
+      - name: Download darwin-arm64 binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signing-input-binding-darwin-arm64
+          path: bindings/darwin-arm64
+          digest-mismatch: error
+
+      - name: Download darwin-x64 binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signing-input-binding-darwin-x64
+          path: bindings/darwin-x64
+          digest-mismatch: error
+
+      - name: Download win32-arm64 binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signing-input-binding-win32-arm64
+          path: bindings/win32-arm64
+          digest-mismatch: error
+
+      - name: Download win32-x64 binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signing-input-binding-win32-x64
+          path: bindings/win32-x64
+          digest-mismatch: error
+
+      - name: Resolve upload IDs and digests against the run API
+        id: resolve
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+
+          targets = ("darwin-arm64", "darwin-x64", "win32-arm64", "win32-x64")
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          repository = os.environ["REPOSITORY"]
+
+          def api(path: str) -> object:
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repository}/{path}"], text=True
+              ))
+
+          expected_names = {
+              *(f"signing-input-{target}" for target in targets),
+              *(f"signing-input-binding-{target}" for target in targets),
+          }
+          listing = api(f"actions/runs/{run_id}/artifacts?per_page=100")
+          run_artifacts = {
+              item["name"] for item in listing["artifacts"]
+              if item.get("workflow_run", {}).get("id") == run_id
+              and item["name"].startswith("signing-input-")
+          }
+          if run_artifacts != expected_names:
+              raise SystemExit(
+                  f"signing artifact set mismatch: expected={sorted(expected_names)}, "
+                  f"actual={sorted(run_artifacts)}"
+              )
+
+          output_lines = []
+          for target in targets:
+              directory = pathlib.Path("bindings") / target
+              files = [path for path in directory.rglob("*") if path.is_file()]
+              if len(files) != 1 or files[0].name != f"{target}.json" or files[0].is_symlink():
+                  raise SystemExit(f"invalid binding artifact for {target}")
+              record = json.loads(files[0].read_text(encoding="utf-8"))
+              expected_keys = {
+                  "schemaVersion", "target", "artifactName", "artifactId",
+                  "artifactDigest", "runId", "headSha",
+              }
+              if set(record) != expected_keys:
+                  raise SystemExit(f"invalid binding schema for {target}")
+              if (
+                  record["schemaVersion"] != 1
+                  or record["target"] != target
+                  or record["artifactName"] != f"signing-input-{target}"
+                  or record["runId"] != run_id
+                  or record["headSha"] != os.environ["EXPECTED_HEAD_SHA"]
+                  or not isinstance(record["artifactId"], int)
+                  or not re.fullmatch(r"[0-9a-f]{64}", record["artifactDigest"])
+              ):
+                  raise SystemExit(f"binding value mismatch for {target}")
+              artifact = api(f"actions/artifacts/{record['artifactId']}")
+              api_digest = str(artifact.get("digest", "")).removeprefix("sha256:").lower()
+              workflow_run = artifact.get("workflow_run") or {}
+              if (
+                  artifact.get("name") != record["artifactName"]
+                  or artifact.get("expired") is not False
+                  or api_digest != record["artifactDigest"]
+                  or workflow_run.get("id") != run_id
+                  or workflow_run.get("head_sha") != record["headSha"]
+              ):
+                  raise SystemExit(f"artifact API binding mismatch for {target}")
+              key = target.replace("-", "_")
+              output_lines.extend((
+                  f"{key}_id={record['artifactId']}",
+                  f"{key}_digest={record['artifactDigest']}",
+              ))
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write("\n".join(output_lines) + "\n")
+          PY
+
+  rebuild-signing-inputs:
+    name: Independent clean rebuild ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs: prepare-sources
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            platform: darwin
+            runner: macos-26
+          - target: darwin-x64
+            platform: darwin
+            runner: macos-26-intel
+          - target: win32-arm64
+            platform: win32
+            runner: ubuntu-22.04
+          - target: win32-x64
+            platform: win32
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected rebuild recipe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download bound authenticated core sources
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.core-artifact-id }}
+          path: build/source-cache/downloads
+          digest-mismatch: error
+
+      - name: Download bound authenticated Windows toolchain
+        if: matrix.platform == 'win32'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
+          path: build/source-cache/downloads
+          digest-mismatch: error
+
+      - name: Install the bound release lock
+        run: install -m 0644 build/source-cache/downloads/sources.env sources.env
+
+      - name: Install Linux rebuild prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            bzip2 \
+            build-essential \
+            ca-certificates \
+            curl \
+            file \
+            gnupg \
+            pkg-config \
+            python3 \
+            xz-utils
+
+      - name: Install macOS rebuild prerequisites
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          test -x /usr/bin/python3
+          /usr/bin/python3 -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
+          brew install gnupg pkg-config
+          python3 -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
+
+      - name: Re-authenticate and independently rebuild
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scripts/fetch-sources.sh "$TARGET"
+          scripts/build.sh "$TARGET"
+          scripts/verify-binary.sh "$TARGET"
+
+      - name: Stage exact independent rebuild result
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          stage="build/rebuild-input/${TARGET}"
+          mkdir -p "$stage"
+          cp -R "build/${TARGET}/payload" "$stage/payload"
+          install -m 0644 "build/${TARGET}/build-info.json" "$stage/build-info.json"
+          install -m 0644 sources.env "$stage/sources.env"
+          if [[ "$PLATFORM" == win32 ]]; then
+            mkdir -p "$stage/work/link-maps"
+            for evidence in \
+              ffmpeg.map \
+              ffmpeg.link-trace.txt \
+              ffprobe.map \
+              ffprobe.link-trace.txt; do
+              install -m 0644 \
+                "build/${TARGET}/work/link-maps/${evidence}" \
+                "$stage/work/link-maps/${evidence}"
+            done
+          fi
+
+      - name: Upload independent clean rebuild
+        id: upload-rebuild
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: independent-rebuild-${{ matrix.target }}
+          path: build/rebuild-input/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Record independent rebuild artifact binding
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload-rebuild.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload-rebuild.outputs.artifact-id }}
+          ARTIFACT_NAME: independent-rebuild-${{ matrix.target }}
+          HEAD_SHA: ${{ github.sha }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json, os, pathlib, re
+          artifact_id = os.environ["ARTIFACT_ID"]
+          digest = os.environ["ARTIFACT_DIGEST"].lower()
+          if not re.fullmatch(r"[1-9][0-9]*", artifact_id) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("upload-artifact returned an invalid rebuild identity")
+          path = pathlib.Path("build/rebuild-bindings") / f"{os.environ['TARGET']}.json"
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps({
+              "schemaVersion": 1,
+              "target": os.environ["TARGET"],
+              "artifactName": os.environ["ARTIFACT_NAME"],
+              "artifactId": int(artifact_id),
+              "artifactDigest": digest,
+              "runId": int(os.environ["GITHUB_RUN_ID"]),
+              "headSha": os.environ["HEAD_SHA"],
+          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload independent rebuild binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: independent-rebuild-binding-${{ matrix.target }}
+          path: build/rebuild-bindings/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
+
+  resolve-rebuild-inputs:
+    name: Bind exact independent rebuilds
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - rebuild-signing-inputs
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      darwin_arm64_id: ${{ steps.resolve.outputs.darwin_arm64_id }}
+      darwin_arm64_digest: ${{ steps.resolve.outputs.darwin_arm64_digest }}
+      darwin_x64_id: ${{ steps.resolve.outputs.darwin_x64_id }}
+      darwin_x64_digest: ${{ steps.resolve.outputs.darwin_x64_digest }}
+      win32_arm64_id: ${{ steps.resolve.outputs.win32_arm64_id }}
+      win32_arm64_digest: ${{ steps.resolve.outputs.win32_arm64_digest }}
+      win32_x64_id: ${{ steps.resolve.outputs.win32_x64_id }}
+      win32_x64_digest: ${{ steps.resolve.outputs.win32_x64_digest }}
+    steps:
+      - name: Download darwin-arm64 rebuild binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: independent-rebuild-binding-darwin-arm64
+          path: bindings/darwin-arm64
+          digest-mismatch: error
+
+      - name: Download darwin-x64 rebuild binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: independent-rebuild-binding-darwin-x64
+          path: bindings/darwin-x64
+          digest-mismatch: error
+
+      - name: Download win32-arm64 rebuild binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: independent-rebuild-binding-win32-arm64
+          path: bindings/win32-arm64
+          digest-mismatch: error
+
+      - name: Download win32-x64 rebuild binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: independent-rebuild-binding-win32-x64
+          path: bindings/win32-x64
+          digest-mismatch: error
+
+      - name: Resolve rebuild IDs and digests against the run API
+        id: resolve
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+
+          targets = ("darwin-arm64", "darwin-x64", "win32-arm64", "win32-x64")
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          repository = os.environ["REPOSITORY"]
+
+          def api(path: str) -> object:
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repository}/{path}"], text=True
+              ))
+
+          expected_names = {
+              *(f"independent-rebuild-{target}" for target in targets),
+              *(f"independent-rebuild-binding-{target}" for target in targets),
+          }
+          listing = api(f"actions/runs/{run_id}/artifacts?per_page=100")
+          run_artifacts = {
+              item["name"] for item in listing["artifacts"]
+              if item.get("workflow_run", {}).get("id") == run_id
+              and item["name"].startswith("independent-rebuild-")
+          }
+          if run_artifacts != expected_names:
+              raise SystemExit(
+                  f"rebuild artifact set mismatch: expected={sorted(expected_names)}, "
+                  f"actual={sorted(run_artifacts)}"
+              )
+
+          output_lines = []
+          for target in targets:
+              directory = pathlib.Path("bindings") / target
+              files = [path for path in directory.rglob("*") if path.is_file()]
+              if len(files) != 1 or files[0].name != f"{target}.json" or files[0].is_symlink():
+                  raise SystemExit(f"invalid rebuild binding artifact for {target}")
+              record = json.loads(files[0].read_text(encoding="utf-8"))
+              expected_keys = {
+                  "schemaVersion", "target", "artifactName", "artifactId",
+                  "artifactDigest", "runId", "headSha",
+              }
+              if set(record) != expected_keys:
+                  raise SystemExit(f"invalid rebuild binding schema for {target}")
+              if (
+                  record["schemaVersion"] != 1
+                  or record["target"] != target
+                  or record["artifactName"] != f"independent-rebuild-{target}"
+                  or record["runId"] != run_id
+                  or record["headSha"] != os.environ["EXPECTED_HEAD_SHA"]
+                  or not isinstance(record["artifactId"], int)
+                  or not re.fullmatch(r"[0-9a-f]{64}", record["artifactDigest"])
+              ):
+                  raise SystemExit(f"rebuild binding value mismatch for {target}")
+              artifact = api(f"actions/artifacts/{record['artifactId']}")
+              api_digest = str(artifact.get("digest", "")).removeprefix("sha256:").lower()
+              workflow_run = artifact.get("workflow_run") or {}
+              if (
+                  artifact.get("name") != record["artifactName"]
+                  or artifact.get("expired") is not False
+                  or api_digest != record["artifactDigest"]
+                  or workflow_run.get("id") != run_id
+                  or workflow_run.get("head_sha") != record["headSha"]
+              ):
+                  raise SystemExit(f"rebuild artifact API binding mismatch for {target}")
+              key = target.replace("-", "_")
+              output_lines.extend((
+                  f"{key}_id={record['artifactId']}",
+                  f"{key}_digest={record['artifactDigest']}",
+              ))
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write("\n".join(output_lines) + "\n")
+          PY
+
+  macos-presign-approval:
+    name: Secret-free pre-sign approval ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - rebuild-signing-inputs
+      - resolve-rebuild-inputs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-26
+            input_id: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_digest }}
+          - target: darwin-x64
+            runner: macos-26-intel
+            input_id: ${{ needs.resolve-signing-inputs.outputs.darwin_x64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.darwin_x64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_digest }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected approval code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download exact bound unsigned macOS payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.input_id }}
+          path: build/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent clean macOS rebuild
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.rebuild_id }}
+          path: build/rebuild/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Validate exact input and emit deterministic approval
+        env:
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          INPUT_ID: ${{ matrix.input_id }}
+          REBUILD_DIGEST: ${{ matrix.rebuild_digest }}
+          REBUILD_ID: ${{ matrix.rebuild_id }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -I scripts/validate_signing_input.py \
+            --target "$TARGET" \
+            --input-dir "build/${TARGET}" \
+            --rebuild-dir "build/rebuild/${TARGET}" \
+            --artifact-id "$INPUT_ID" \
+            --artifact-digest "$INPUT_DIGEST" \
+            --rebuild-artifact-id "$REBUILD_ID" \
+            --rebuild-artifact-digest "$REBUILD_DIGEST" \
+            --control-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --write-approval "build/presign-approval/${TARGET}.json"
+          for binary in ffmpeg ffprobe; do
+            python3 -I scripts/verify_macho_codesign_delta.py --unsigned-only \
+              "build/${TARGET}/payload/${binary}"
+          done
+
+      - name: Upload immutable macOS pre-sign binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: presign-approval-${{ matrix.target }}
+          path: build/presign-approval/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
+
+      - name: Run protected static and feature verification
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod 0755 \
+            "build/${TARGET}/payload/ffmpeg" \
+            "build/${TARGET}/payload/ffprobe"
+          scripts/verify-binary.sh "$TARGET"
+
+      - name: Run complete native media smoke before signing
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ffmpeg="build/${TARGET}/payload/ffmpeg"
+          ffprobe="build/${TARGET}/payload/ffprobe"
+          smoke_dir=$(mktemp -d "${RUNNER_TEMP}/motrix-ffmpeg-presign.XXXXXX")
+          trap 'rm -rf -- "$smoke_dir"' EXIT
+          scripts/motrix-media-smoke.sh "$ffmpeg" "$ffprobe" "$smoke_dir"
+
+  windows-presign-static-approval:
+    name: Secret-free PE pre-sign approval ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - rebuild-signing-inputs
+      - resolve-rebuild-inputs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            input_id: ${{ needs.resolve-signing-inputs.outputs.win32_x64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.win32_x64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_digest }}
+          - target: win32-arm64
+            input_id: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_digest }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected PE approval code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download exact bound unsigned Windows payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.input_id }}
+          path: build/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent clean Windows rebuild
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.rebuild_id }}
+          path: build/rebuild/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download bound authenticated Windows inspection toolchain
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
+          path: build/source-cache/downloads
+          digest-mismatch: error
+
+      - name: Install PE inspection prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            file \
+            xz-utils
+
+      - name: Validate exact input and emit deterministic approval
+        env:
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          INPUT_ID: ${{ matrix.input_id }}
+          REBUILD_DIGEST: ${{ matrix.rebuild_digest }}
+          REBUILD_ID: ${{ matrix.rebuild_id }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -I scripts/validate_signing_input.py \
+            --target "$TARGET" \
+            --input-dir "build/${TARGET}" \
+            --rebuild-dir "build/rebuild/${TARGET}" \
+            --artifact-id "$INPUT_ID" \
+            --artifact-digest "$INPUT_DIGEST" \
+            --rebuild-artifact-id "$REBUILD_ID" \
+            --rebuild-artifact-digest "$REBUILD_DIGEST" \
+            --control-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --write-approval "build/presign-static-approval/${TARGET}.json"
+          for binary in ffmpeg.exe ffprobe.exe; do
+            python3 -I scripts/verify_authenticode_delta.py --unsigned-only \
+              "build/${TARGET}/payload/${binary}"
+          done
+
+      - name: Upload immutable static PE pre-sign binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: presign-static-approval-${{ matrix.target }}
+          path: build/presign-static-approval/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
+
+      - name: Extract checksum-bound tools and run complete PE verification
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod 0755 \
+            "build/${TARGET}/payload/ffmpeg.exe" \
+            "build/${TARGET}/payload/ffprobe.exe"
+          # shellcheck disable=SC1091
+          source scripts/common.sh
+          toolchain_archive="build/source-cache/downloads/${LLVM_MINGW_ARCHIVE}"
+          entries=(build/source-cache/downloads/*)
+          [[ ${#entries[@]} -eq 1 && "${entries[0]}" == "$toolchain_archive" ]]
+          extract_tar_strip_one \
+            "$toolchain_archive" \
+            "build/${TARGET}/work/toolchain" \
+            "$LLVM_MINGW_SHA256"
+          scripts/verify-binary.sh "$TARGET"
+
+  windows-presign-native-approval:
+    name: Secret-free native pre-sign approval ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - rebuild-signing-inputs
+      - resolve-rebuild-inputs
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            runner: windows-2025
+            input_id: ${{ needs.resolve-signing-inputs.outputs.win32_x64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.win32_x64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_digest }}
+          - target: win32-arm64
+            runner: windows-11-vs2026-arm
+            input_id: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_digest }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected native approval code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download exact bound unsigned Windows payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.input_id }}
+          path: build/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent clean Windows rebuild
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.rebuild_id }}
+          path: build/rebuild/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Validate exact input and emit deterministic approval
+        env:
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          INPUT_ID: ${{ matrix.input_id }}
+          REBUILD_DIGEST: ${{ matrix.rebuild_digest }}
+          REBUILD_ID: ${{ matrix.rebuild_id }}
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          & python -I scripts/validate_signing_input.py `
+            --target $env:TARGET `
+            --input-dir "build/$($env:TARGET)" `
+            --rebuild-dir "build/rebuild/$($env:TARGET)" `
+            --artifact-id $env:INPUT_ID `
+            --artifact-digest $env:INPUT_DIGEST `
+            --rebuild-artifact-id $env:REBUILD_ID `
+            --rebuild-artifact-digest $env:REBUILD_DIGEST `
+            --control-sha $env:GITHUB_SHA `
+            --run-id $env:GITHUB_RUN_ID `
+            --write-approval "build/presign-native-approval/$($env:TARGET).json"
+          if ($LASTEXITCODE -ne 0) {
+            throw 'exact Windows signing-input validation failed'
+          }
+
+      - name: Upload native Windows pre-sign approval
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: presign-native-approval-${{ matrix.target }}
+          path: build/presign-native-approval/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
+
+      - name: Confirm unsigned state and run complete native media smoke
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $root = Join-Path $env:GITHUB_WORKSPACE "build/$($env:TARGET)/payload"
+          $ffmpeg = Join-Path $root 'ffmpeg.exe'
+          $ffprobe = Join-Path $root 'ffprobe.exe'
+          foreach ($binary in @($ffmpeg, $ffprobe)) {
+            if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+              throw "Missing unsigned candidate: $binary"
+            }
+            $signature = Get-AuthenticodeSignature -FilePath $binary
+            if ($signature.Status -ne 'NotSigned') {
+              throw "Pre-sign candidate unexpectedly has a signature: $binary"
+            }
+          }
+          $smokeDir = Join-Path $env:RUNNER_TEMP "motrix-ffmpeg-presign-$($env:TARGET)"
+          New-Item -ItemType Directory -Path $smokeDir -ErrorAction Stop | Out-Null
+          & scripts/motrix-media-smoke.ps1 `
+            -FFmpegPath $ffmpeg `
+            -FFprobePath $ffprobe `
+            -WorkDir $smokeDir
+
+  finalize-signing-grants:
+    name: Finalize secret-free signing grants
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - resolve-rebuild-inputs
+      - macos-presign-approval
+      - windows-presign-static-approval
+      - windows-presign-native-approval
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      macos_static_darwin_arm64_approval_id: ${{ steps.resolve-approvals.outputs.macos_static_darwin_arm64_id }}
+      macos_static_darwin_arm64_approval_digest: ${{ steps.resolve-approvals.outputs.macos_static_darwin_arm64_digest }}
+      macos_static_darwin_arm64_grant_id: ${{ steps.upload-grant-macos-arm64.outputs.artifact-id }}
+      macos_static_darwin_arm64_grant_digest: ${{ steps.upload-grant-macos-arm64.outputs.artifact-digest }}
+      macos_static_darwin_x64_approval_id: ${{ steps.resolve-approvals.outputs.macos_static_darwin_x64_id }}
+      macos_static_darwin_x64_approval_digest: ${{ steps.resolve-approvals.outputs.macos_static_darwin_x64_digest }}
+      macos_static_darwin_x64_grant_id: ${{ steps.upload-grant-macos-x64.outputs.artifact-id }}
+      macos_static_darwin_x64_grant_digest: ${{ steps.upload-grant-macos-x64.outputs.artifact-digest }}
+      windows_static_win32_arm64_approval_id: ${{ steps.resolve-approvals.outputs.windows_static_win32_arm64_id }}
+      windows_static_win32_arm64_approval_digest: ${{ steps.resolve-approvals.outputs.windows_static_win32_arm64_digest }}
+      windows_static_win32_arm64_grant_id: ${{ steps.upload-grant-windows-static-arm64.outputs.artifact-id }}
+      windows_static_win32_arm64_grant_digest: ${{ steps.upload-grant-windows-static-arm64.outputs.artifact-digest }}
+      windows_native_win32_arm64_approval_id: ${{ steps.resolve-approvals.outputs.windows_native_win32_arm64_id }}
+      windows_native_win32_arm64_approval_digest: ${{ steps.resolve-approvals.outputs.windows_native_win32_arm64_digest }}
+      windows_native_win32_arm64_grant_id: ${{ steps.upload-grant-windows-native-arm64.outputs.artifact-id }}
+      windows_native_win32_arm64_grant_digest: ${{ steps.upload-grant-windows-native-arm64.outputs.artifact-digest }}
+      windows_static_win32_x64_approval_id: ${{ steps.resolve-approvals.outputs.windows_static_win32_x64_id }}
+      windows_static_win32_x64_approval_digest: ${{ steps.resolve-approvals.outputs.windows_static_win32_x64_digest }}
+      windows_static_win32_x64_grant_id: ${{ steps.upload-grant-windows-static-x64.outputs.artifact-id }}
+      windows_static_win32_x64_grant_digest: ${{ steps.upload-grant-windows-static-x64.outputs.artifact-digest }}
+      windows_native_win32_x64_approval_id: ${{ steps.resolve-approvals.outputs.windows_native_win32_x64_id }}
+      windows_native_win32_x64_approval_digest: ${{ steps.resolve-approvals.outputs.windows_native_win32_x64_digest }}
+      windows_native_win32_x64_grant_id: ${{ steps.upload-grant-windows-native-x64.outputs.artifact-id }}
+      windows_native_win32_x64_grant_digest: ${{ steps.upload-grant-windows-native-x64.outputs.artifact-digest }}
+    steps:
+      - name: Check out protected grant coordinator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Resolve every completed approval against the run API
+        id: resolve-approvals
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+
+          approvals = {
+              "macos_static_darwin_arm64": "presign-approval-darwin-arm64",
+              "macos_static_darwin_x64": "presign-approval-darwin-x64",
+              "windows_static_win32_arm64": "presign-static-approval-win32-arm64",
+              "windows_static_win32_x64": "presign-static-approval-win32-x64",
+              "windows_native_win32_arm64": "presign-native-approval-win32-arm64",
+              "windows_native_win32_x64": "presign-native-approval-win32-x64",
+          }
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          repository = os.environ["REPOSITORY"]
+
+          def api(path: str) -> object:
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repository}/{path}"], text=True
+              ))
+
+          listing = api(f"actions/runs/{run_id}/artifacts?per_page=100")
+          if listing.get("total_count", 0) > 100:
+              raise SystemExit("artifact count exceeds the fail-closed approval resolver limit")
+          prefixes = (
+              "presign-approval-",
+              "presign-static-approval-",
+              "presign-native-approval-",
+          )
+          candidates = [
+              item for item in listing.get("artifacts", [])
+              if item.get("name", "").startswith(prefixes)
+              and (item.get("workflow_run") or {}).get("id") == run_id
+          ]
+          if (
+              len(candidates) != len(approvals)
+              or {item.get("name") for item in candidates} != set(approvals.values())
+          ):
+              raise SystemExit("completed pre-sign approval artifact set mismatch")
+
+          by_name = {item["name"]: item for item in candidates}
+          output_lines = []
+          for key, name in approvals.items():
+              listed = by_name[name]
+              artifact_id = listed.get("id")
+              if type(artifact_id) is not int or artifact_id <= 0:
+                  raise SystemExit(f"invalid approval artifact ID for {name}")
+              artifact = api(f"actions/artifacts/{artifact_id}")
+              digest = str(artifact.get("digest", "")).removeprefix("sha256:").lower()
+              workflow_run = artifact.get("workflow_run") or {}
+              if (
+                  artifact.get("id") != artifact_id
+                  or artifact.get("name") != name
+                  or artifact.get("expired") is not False
+                  or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                  or workflow_run.get("id") != run_id
+                  or workflow_run.get("head_sha") != os.environ["EXPECTED_HEAD_SHA"]
+              ):
+                  raise SystemExit(f"approval artifact API binding mismatch for {name}")
+              output_lines.extend((f"{key}_id={artifact_id}", f"{key}_digest={digest}"))
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write("\n".join(output_lines) + "\n")
+          PY
+
+      - name: Download exact macOS arm64 approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.resolve-approvals.outputs.macos_static_darwin_arm64_id }}
+          path: build/approvals/macos-static/darwin-arm64
+          digest-mismatch: error
+
+      - name: Download exact macOS x64 approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.resolve-approvals.outputs.macos_static_darwin_x64_id }}
+          path: build/approvals/macos-static/darwin-x64
+          digest-mismatch: error
+
+      - name: Download exact Windows arm64 static approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.resolve-approvals.outputs.windows_static_win32_arm64_id }}
+          path: build/approvals/windows-static/win32-arm64
+          digest-mismatch: error
+
+      - name: Download exact Windows x64 static approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.resolve-approvals.outputs.windows_static_win32_x64_id }}
+          path: build/approvals/windows-static/win32-x64
+          digest-mismatch: error
+
+      - name: Download exact Windows arm64 native approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.resolve-approvals.outputs.windows_native_win32_arm64_id }}
+          path: build/approvals/windows-native/win32-arm64
+          digest-mismatch: error
+
+      - name: Download exact Windows x64 native approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.resolve-approvals.outputs.windows_native_win32_x64_id }}
+          path: build/approvals/windows-native/win32-x64
+          digest-mismatch: error
+
+      - name: Download exact signing candidates
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_id }},${{ needs.resolve-signing-inputs.outputs.darwin_x64_id }},${{ needs.resolve-signing-inputs.outputs.win32_arm64_id }},${{ needs.resolve-signing-inputs.outputs.win32_x64_id }}
+          path: build/candidates
+          merge-multiple: false
+          digest-mismatch: error
+
+      - name: Download exact independent rebuilds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_id }},${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_id }},${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_id }},${{ needs.resolve-rebuild-inputs.outputs.win32_x64_id }}
+          path: build/rebuilds
+          merge-multiple: false
+          digest-mismatch: error
+
+      - name: Re-derive approvals and create canonical final grants
+        env:
+          MACOS_STATIC_DARWIN_ARM64_APPROVAL_DIGEST: ${{ steps.resolve-approvals.outputs.macos_static_darwin_arm64_digest }}
+          MACOS_STATIC_DARWIN_ARM64_APPROVAL_ID: ${{ steps.resolve-approvals.outputs.macos_static_darwin_arm64_id }}
+          MACOS_STATIC_DARWIN_X64_APPROVAL_DIGEST: ${{ steps.resolve-approvals.outputs.macos_static_darwin_x64_digest }}
+          MACOS_STATIC_DARWIN_X64_APPROVAL_ID: ${{ steps.resolve-approvals.outputs.macos_static_darwin_x64_id }}
+          WINDOWS_NATIVE_WIN32_ARM64_APPROVAL_DIGEST: ${{ steps.resolve-approvals.outputs.windows_native_win32_arm64_digest }}
+          WINDOWS_NATIVE_WIN32_ARM64_APPROVAL_ID: ${{ steps.resolve-approvals.outputs.windows_native_win32_arm64_id }}
+          WINDOWS_NATIVE_WIN32_X64_APPROVAL_DIGEST: ${{ steps.resolve-approvals.outputs.windows_native_win32_x64_digest }}
+          WINDOWS_NATIVE_WIN32_X64_APPROVAL_ID: ${{ steps.resolve-approvals.outputs.windows_native_win32_x64_id }}
+          WINDOWS_STATIC_WIN32_ARM64_APPROVAL_DIGEST: ${{ steps.resolve-approvals.outputs.windows_static_win32_arm64_digest }}
+          WINDOWS_STATIC_WIN32_ARM64_APPROVAL_ID: ${{ steps.resolve-approvals.outputs.windows_static_win32_arm64_id }}
+          WINDOWS_STATIC_WIN32_X64_APPROVAL_DIGEST: ${{ steps.resolve-approvals.outputs.windows_static_win32_x64_digest }}
+          WINDOWS_STATIC_WIN32_X64_APPROVAL_ID: ${{ steps.resolve-approvals.outputs.windows_static_win32_x64_id }}
+          DARWIN_ARM64_INPUT_DIGEST: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_digest }}
+          DARWIN_ARM64_INPUT_ID: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_id }}
+          DARWIN_ARM64_REBUILD_DIGEST: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_digest }}
+          DARWIN_ARM64_REBUILD_ID: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_id }}
+          DARWIN_X64_INPUT_DIGEST: ${{ needs.resolve-signing-inputs.outputs.darwin_x64_digest }}
+          DARWIN_X64_INPUT_ID: ${{ needs.resolve-signing-inputs.outputs.darwin_x64_id }}
+          DARWIN_X64_REBUILD_DIGEST: ${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_digest }}
+          DARWIN_X64_REBUILD_ID: ${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_id }}
+          WIN32_ARM64_INPUT_DIGEST: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_digest }}
+          WIN32_ARM64_INPUT_ID: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_id }}
+          WIN32_ARM64_REBUILD_DIGEST: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_digest }}
+          WIN32_ARM64_REBUILD_ID: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_id }}
+          WIN32_X64_INPUT_DIGEST: ${{ needs.resolve-signing-inputs.outputs.win32_x64_digest }}
+          WIN32_X64_INPUT_ID: ${{ needs.resolve-signing-inputs.outputs.win32_x64_id }}
+          WIN32_X64_REBUILD_DIGEST: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_digest }}
+          WIN32_X64_REBUILD_ID: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p build/final-grants
+          make_grant() {
+            local kind=$1
+            local target=$2
+            local approval_id=$3
+            local approval_digest=$4
+            local input_id=$5
+            local input_digest=$6
+            local rebuild_id=$7
+            local rebuild_digest=$8
+            local approval="build/approvals/${kind}/${target}/${target}.json"
+            local candidate="build/candidates/signing-input-${target}"
+            local rebuild="build/rebuilds/independent-rebuild-${target}"
+            local grant="build/final-grants/${kind}-${target}.json"
+            python3 -I scripts/validate_signing_input.py \
+              --target "$target" \
+              --input-dir "$candidate" \
+              --rebuild-dir "$rebuild" \
+              --artifact-id "$input_id" \
+              --artifact-digest "$input_digest" \
+              --rebuild-artifact-id "$rebuild_id" \
+              --rebuild-artifact-digest "$rebuild_digest" \
+              --control-sha "$GITHUB_SHA" \
+              --run-id "$GITHUB_RUN_ID" \
+              --verify-approval "$approval"
+            python3 -I scripts/finalize_signing_grant.py \
+              --approval-kind "$kind" \
+              --target "$target" \
+              --approval-file "$approval" \
+              --approval-artifact-id "$approval_id" \
+              --approval-artifact-digest "$approval_digest" \
+              --candidate-artifact-id "$input_id" \
+              --candidate-artifact-digest "$input_digest" \
+              --rebuild-artifact-id "$rebuild_id" \
+              --rebuild-artifact-digest "$rebuild_digest" \
+              --control-sha "$GITHUB_SHA" \
+              --run-id "$GITHUB_RUN_ID" \
+              --write-grant "$grant"
+          }
+          make_grant macos-static darwin-arm64 \
+            "$MACOS_STATIC_DARWIN_ARM64_APPROVAL_ID" \
+            "$MACOS_STATIC_DARWIN_ARM64_APPROVAL_DIGEST" \
+            "$DARWIN_ARM64_INPUT_ID" "$DARWIN_ARM64_INPUT_DIGEST" \
+            "$DARWIN_ARM64_REBUILD_ID" "$DARWIN_ARM64_REBUILD_DIGEST"
+          make_grant macos-static darwin-x64 \
+            "$MACOS_STATIC_DARWIN_X64_APPROVAL_ID" \
+            "$MACOS_STATIC_DARWIN_X64_APPROVAL_DIGEST" \
+            "$DARWIN_X64_INPUT_ID" "$DARWIN_X64_INPUT_DIGEST" \
+            "$DARWIN_X64_REBUILD_ID" "$DARWIN_X64_REBUILD_DIGEST"
+          make_grant windows-static win32-arm64 \
+            "$WINDOWS_STATIC_WIN32_ARM64_APPROVAL_ID" \
+            "$WINDOWS_STATIC_WIN32_ARM64_APPROVAL_DIGEST" \
+            "$WIN32_ARM64_INPUT_ID" "$WIN32_ARM64_INPUT_DIGEST" \
+            "$WIN32_ARM64_REBUILD_ID" "$WIN32_ARM64_REBUILD_DIGEST"
+          make_grant windows-static win32-x64 \
+            "$WINDOWS_STATIC_WIN32_X64_APPROVAL_ID" \
+            "$WINDOWS_STATIC_WIN32_X64_APPROVAL_DIGEST" \
+            "$WIN32_X64_INPUT_ID" "$WIN32_X64_INPUT_DIGEST" \
+            "$WIN32_X64_REBUILD_ID" "$WIN32_X64_REBUILD_DIGEST"
+          make_grant windows-native win32-arm64 \
+            "$WINDOWS_NATIVE_WIN32_ARM64_APPROVAL_ID" \
+            "$WINDOWS_NATIVE_WIN32_ARM64_APPROVAL_DIGEST" \
+            "$WIN32_ARM64_INPUT_ID" "$WIN32_ARM64_INPUT_DIGEST" \
+            "$WIN32_ARM64_REBUILD_ID" "$WIN32_ARM64_REBUILD_DIGEST"
+          make_grant windows-native win32-x64 \
+            "$WINDOWS_NATIVE_WIN32_X64_APPROVAL_ID" \
+            "$WINDOWS_NATIVE_WIN32_X64_APPROVAL_DIGEST" \
+            "$WIN32_X64_INPUT_ID" "$WIN32_X64_INPUT_DIGEST" \
+            "$WIN32_X64_REBUILD_ID" "$WIN32_X64_REBUILD_DIGEST"
+
+      - name: Upload final macOS arm64 signing grant
+        id: upload-grant-macos-arm64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-signing-grant-macos-static-darwin-arm64
+          path: build/final-grants/macos-static-darwin-arm64.json
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Upload final macOS x64 signing grant
+        id: upload-grant-macos-x64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-signing-grant-macos-static-darwin-x64
+          path: build/final-grants/macos-static-darwin-x64.json
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Upload final Windows arm64 static grant
+        id: upload-grant-windows-static-arm64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-signing-grant-windows-static-win32-arm64
+          path: build/final-grants/windows-static-win32-arm64.json
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Upload final Windows x64 static grant
+        id: upload-grant-windows-static-x64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-signing-grant-windows-static-win32-x64
+          path: build/final-grants/windows-static-win32-x64.json
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Upload final Windows arm64 native grant
+        id: upload-grant-windows-native-arm64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-signing-grant-windows-native-win32-arm64
+          path: build/final-grants/windows-native-win32-arm64.json
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Upload final Windows x64 native grant
+        id: upload-grant-windows-native-x64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-signing-grant-windows-native-win32-x64
+          path: build/final-grants/windows-native-win32-x64.json
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Bind uploaded final grants against the run API
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          MACOS_ARM64_ID: ${{ steps.upload-grant-macos-arm64.outputs.artifact-id }}
+          MACOS_ARM64_DIGEST: ${{ steps.upload-grant-macos-arm64.outputs.artifact-digest }}
+          MACOS_X64_ID: ${{ steps.upload-grant-macos-x64.outputs.artifact-id }}
+          MACOS_X64_DIGEST: ${{ steps.upload-grant-macos-x64.outputs.artifact-digest }}
+          WINDOWS_STATIC_ARM64_ID: ${{ steps.upload-grant-windows-static-arm64.outputs.artifact-id }}
+          WINDOWS_STATIC_ARM64_DIGEST: ${{ steps.upload-grant-windows-static-arm64.outputs.artifact-digest }}
+          WINDOWS_STATIC_X64_ID: ${{ steps.upload-grant-windows-static-x64.outputs.artifact-id }}
+          WINDOWS_STATIC_X64_DIGEST: ${{ steps.upload-grant-windows-static-x64.outputs.artifact-digest }}
+          WINDOWS_NATIVE_ARM64_ID: ${{ steps.upload-grant-windows-native-arm64.outputs.artifact-id }}
+          WINDOWS_NATIVE_ARM64_DIGEST: ${{ steps.upload-grant-windows-native-arm64.outputs.artifact-digest }}
+          WINDOWS_NATIVE_X64_ID: ${{ steps.upload-grant-windows-native-x64.outputs.artifact-id }}
+          WINDOWS_NATIVE_X64_DIGEST: ${{ steps.upload-grant-windows-native-x64.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          expected = {
+              "final-signing-grant-macos-static-darwin-arm64": ("MACOS_ARM64_ID", "MACOS_ARM64_DIGEST"),
+              "final-signing-grant-macos-static-darwin-x64": ("MACOS_X64_ID", "MACOS_X64_DIGEST"),
+              "final-signing-grant-windows-static-win32-arm64": ("WINDOWS_STATIC_ARM64_ID", "WINDOWS_STATIC_ARM64_DIGEST"),
+              "final-signing-grant-windows-static-win32-x64": ("WINDOWS_STATIC_X64_ID", "WINDOWS_STATIC_X64_DIGEST"),
+              "final-signing-grant-windows-native-win32-arm64": ("WINDOWS_NATIVE_ARM64_ID", "WINDOWS_NATIVE_ARM64_DIGEST"),
+              "final-signing-grant-windows-native-win32-x64": ("WINDOWS_NATIVE_X64_ID", "WINDOWS_NATIVE_X64_DIGEST"),
+          }
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          repository = os.environ["REPOSITORY"]
+          for name, (id_variable, digest_variable) in expected.items():
+              artifact_id_text = os.environ[id_variable]
+              expected_digest = os.environ[digest_variable].lower()
+              if (
+                  re.fullmatch(r"[1-9][0-9]*", artifact_id_text) is None
+                  or re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None
+              ):
+                  raise SystemExit(f"invalid final grant upload identity for {name}")
+              artifact = json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact_id_text}"],
+                  text=True,
+              ))
+              digest = str(artifact.get("digest", "")).removeprefix("sha256:").lower()
+              workflow_run = artifact.get("workflow_run") or {}
+              if (
+                  artifact.get("id") != int(artifact_id_text)
+                  or artifact.get("name") != name
+                  or artifact.get("expired") is not False
+                  or digest != expected_digest
+                  or workflow_run.get("id") != run_id
+                  or workflow_run.get("head_sha") != os.environ["EXPECTED_HEAD_SHA"]
+              ):
+                  raise SystemExit(f"final grant artifact API binding mismatch for {name}")
+          PY
+
+  sign-and-notarize-macos:
+    name: Sign and notarize ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - rebuild-signing-inputs
+      - resolve-rebuild-inputs
+      - macos-presign-approval
+      - finalize-signing-grants
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-26
+            input_id: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_digest }}
+            approval_id: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_arm64_approval_id }}
+            approval_digest: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_arm64_approval_digest }}
+            grant_id: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_arm64_grant_id }}
+            grant_digest: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_arm64_grant_digest }}
+          - target: darwin-x64
+            runner: macos-26-intel
+            input_id: ${{ needs.resolve-signing-inputs.outputs.darwin_x64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.darwin_x64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_digest }}
+            approval_id: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_x64_approval_id }}
+            approval_digest: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_x64_approval_digest }}
+            grant_id: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_x64_grant_id }}
+            grant_digest: ${{ needs.finalize-signing-grants.outputs.macos_static_darwin_x64_grant_digest }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    environment: macos-release-signing
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected signing control code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download bound unsigned macOS payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.input_id }}
+          path: build/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent clean macOS rebuild reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.rebuild_id }}
+          path: build/rebuild/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent macOS pre-sign approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.approval_id }}
+          path: build/approval/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download exact final macOS signing grant
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.grant_id }}
+          path: build/final-grant/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Revalidate every artifact identity against the run API
+        env:
+          APPROVAL_DIGEST: ${{ matrix.approval_digest }}
+          APPROVAL_ID: ${{ matrix.approval_id }}
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GRANT_DIGEST: ${{ matrix.grant_digest }}
+          GRANT_ID: ${{ matrix.grant_id }}
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          INPUT_ID: ${{ matrix.input_id }}
+          REBUILD_DIGEST: ${{ matrix.rebuild_digest }}
+          REBUILD_ID: ${{ matrix.rebuild_id }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          target = os.environ["TARGET"]
+          expected = {
+              f"signing-input-{target}": ("INPUT_ID", "INPUT_DIGEST"),
+              f"independent-rebuild-{target}": ("REBUILD_ID", "REBUILD_DIGEST"),
+              f"presign-approval-{target}": ("APPROVAL_ID", "APPROVAL_DIGEST"),
+              f"final-signing-grant-macos-static-{target}": ("GRANT_ID", "GRANT_DIGEST"),
+          }
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          for name, (id_variable, digest_variable) in expected.items():
+              artifact_id = os.environ[id_variable]
+              expected_digest = os.environ[digest_variable].lower()
+              if (
+                  re.fullmatch(r"[1-9][0-9]*", artifact_id) is None
+                  or re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None
+              ):
+                  raise SystemExit(f"invalid artifact binding for {name}")
+              artifact = json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{os.environ['REPOSITORY']}/actions/artifacts/{artifact_id}"],
+                  text=True,
+              ))
+              digest = str(artifact.get("digest", "")).removeprefix("sha256:").lower()
+              workflow_run = artifact.get("workflow_run") or {}
+              if (
+                  artifact.get("id") != int(artifact_id)
+                  or artifact.get("name") != name
+                  or artifact.get("expired") is not False
+                  or digest != expected_digest
+                  or workflow_run.get("id") != run_id
+                  or workflow_run.get("head_sha") != os.environ["EXPECTED_HEAD_SHA"]
+              ):
+                  raise SystemExit(f"artifact API binding mismatch for {name}")
+          PY
+
+      - name: Recompute approval and final grant before exposing signing credentials
+        env:
+          APPROVAL_DIGEST: ${{ matrix.approval_digest }}
+          APPROVAL_ID: ${{ matrix.approval_id }}
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          INPUT_ID: ${{ matrix.input_id }}
+          REBUILD_DIGEST: ${{ matrix.rebuild_digest }}
+          REBUILD_ID: ${{ matrix.rebuild_id }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -I scripts/validate_signing_input.py \
+            --target "$TARGET" \
+            --input-dir "build/${TARGET}" \
+            --rebuild-dir "build/rebuild/${TARGET}" \
+            --artifact-id "$INPUT_ID" \
+            --artifact-digest "$INPUT_DIGEST" \
+            --rebuild-artifact-id "$REBUILD_ID" \
+            --rebuild-artifact-digest "$REBUILD_DIGEST" \
+            --control-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --verify-approval "build/approval/${TARGET}/${TARGET}.json"
+          python3 -I scripts/finalize_signing_grant.py \
+            --approval-kind macos-static \
+            --target "$TARGET" \
+            --approval-file "build/approval/${TARGET}/${TARGET}.json" \
+            --approval-artifact-id "$APPROVAL_ID" \
+            --approval-artifact-digest "$APPROVAL_DIGEST" \
+            --candidate-artifact-id "$INPUT_ID" \
+            --candidate-artifact-digest "$INPUT_DIGEST" \
+            --rebuild-artifact-id "$REBUILD_ID" \
+            --rebuild-artifact-digest "$REBUILD_DIGEST" \
+            --control-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --verify-grant \
+              "build/final-grant/${TARGET}/macos-static-${TARGET}.json"
+          for binary in ffmpeg ffprobe; do
+            python3 -I scripts/verify_macho_codesign_delta.py --unsigned-only \
+              "build/${TARGET}/payload/${binary}"
+          done
+
+      - name: Sign binaries without executing candidates
+        env:
+          EXPECTED_MACOS_CERT_SHA256: ${{ vars.EXPECTED_MACOS_CERT_SHA256 }}
+          EXPECTED_MACOS_TEAM_ID: ${{ vars.EXPECTED_MACOS_TEAM_ID }}
+          MAC_CERTS: ${{ secrets.MAC_CERTS }}
+          MAC_CERTS_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/sign-macos.sh \
+            "$TARGET" \
+            "build/${TARGET}/payload" \
+            "build/${TARGET}/public-signing-facts"
+
+      - name: Statically verify signatures and package the exact notary ZIP
+        id: package
+        env:
+          EXPECTED_MACOS_CERT_SHA256: ${{ vars.EXPECTED_MACOS_CERT_SHA256 }}
+          EXPECTED_MACOS_TEAM_ID: ${{ vars.EXPECTED_MACOS_TEAM_ID }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for binary in ffmpeg ffprobe; do
+            codesign --verify --strict --verbose=4 "build/${TARGET}/payload/${binary}"
+            team_id=$(codesign --display --verbose=4 "build/${TARGET}/payload/${binary}" 2>&1 |
+              awk -F= '$1 == "TeamIdentifier" { print $2; exit }')
+            [[ "$team_id" == "$EXPECTED_MACOS_TEAM_ID" ]]
+          done
+          [[ "$(<"build/${TARGET}/public-signing-facts/team-id.txt")" == "$EXPECTED_MACOS_TEAM_ID" ]]
+          actual_cert=$(tr '[:upper:]' '[:lower:]' \
+            <"build/${TARGET}/public-signing-facts/certificate-sha256.txt")
+          expected_cert=$(printf '%s' "$EXPECTED_MACOS_CERT_SHA256" | tr '[:upper:]' '[:lower:]')
+          [[ "$actual_cert" == "$expected_cert" ]]
+
+          package_dir="build/packages/${TARGET}"
+          archive=$(python3 scripts/package-artifact.py \
+            --target "$TARGET" \
+            --payload "build/${TARGET}/payload" \
+            --build-info "build/${TARGET}/build-info.json" \
+            --sources-file "build/${TARGET}/sources.env" \
+            --output-dir "$package_dir")
+          archive_sha=$(shasum -a 256 -- "$archive" | awk '{print $1}')
+          printf 'archive=%s\narchive_sha=%s\n' "$archive" "$archive_sha" >>"$GITHUB_OUTPUT"
+
+      - name: Submit the exact ZIP to Apple notary service
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          API_KEY_ID: ${{ secrets.API_KEY_ID }}
+          API_KEY_ISSUER_ID: ${{ secrets.API_KEY_ISSUER_ID }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/notarize-macos.sh \
+            "$ARCHIVE" \
+            "build/${TARGET}/notarization-result.json" \
+            "build/${TARGET}/notarization-log.json"
+
+      - name: Validate notarization, generate evidence, and reproduce the ZIP
+        env:
+          EXPECTED_ARCHIVE: ${{ steps.package.outputs.archive }}
+          EXPECTED_ARCHIVE_SHA: ${{ steps.package.outputs.archive_sha }}
+          EXPECTED_MACOS_CERT_SHA256: ${{ vars.EXPECTED_MACOS_CERT_SHA256 }}
+          EXPECTED_MACOS_TEAM_ID: ${{ vars.EXPECTED_MACOS_TEAM_ID }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -I scripts/validate-notarization.py \
+            --archive "$EXPECTED_ARCHIVE" \
+            --submission-result "build/${TARGET}/notarization-result.json" \
+            --developer-log "build/${TARGET}/notarization-log.json"
+          /usr/bin/python3 -I - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import validate_codesign_hardened_runtime
+
+          target = os.environ["TARGET"]
+          root = pathlib.Path("build") / target
+          payload = root / "payload"
+          facts = root / "public-signing-facts"
+          notary_path = root / "notarization-result.json"
+          notary_log_path = root / "notarization-log.json"
+          notary = json.loads(notary_path.read_text(encoding="utf-8"))
+          submission_id = notary.get("id")
+          if notary.get("status") != "Accepted" or not isinstance(submission_id, str):
+              raise SystemExit("Apple notarization was not accepted")
+          if not re.fullmatch(
+              r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
+              submission_id,
+          ):
+              raise SystemExit("Apple notarization returned an invalid submission ID")
+
+          team_id = (facts / "team-id.txt").read_text(encoding="utf-8").strip()
+          cert_sha = (facts / "certificate-sha256.txt").read_text(encoding="utf-8").strip().lower()
+          subject = (facts / "certificate-subject.txt").read_text(encoding="utf-8").strip()
+          if team_id != os.environ["EXPECTED_MACOS_TEAM_ID"]:
+              raise SystemExit("macOS Team ID changed after signing")
+          if cert_sha != os.environ["EXPECTED_MACOS_CERT_SHA256"].lower():
+              raise SystemExit("macOS certificate changed after signing")
+
+          binaries = {}
+          for name in ("ffmpeg", "ffprobe"):
+              path = payload / name
+              expected_cd_hash = (facts / f"{name}-cdhash.txt").read_text(encoding="utf-8").strip()
+              raw_timestamp = (facts / f"{name}-timestamp.txt").read_text(encoding="utf-8").strip()
+              display = subprocess.run(
+                  ["codesign", "--display", "--verbose=4", str(path)],
+                  check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                  env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+              ).stdout
+              match = re.search(r"^CDHash=([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", display, re.MULTILINE)
+              timestamp_match = re.search(r"^Timestamp=(.+)$", display, re.MULTILINE)
+              try:
+                  validate_codesign_hardened_runtime(display)
+              except ValueError as error:
+                  raise SystemExit(
+                      f"invalid hardened-runtime evidence for {name}: {error}"
+                  ) from error
+              if (
+                  not match
+                  or match.group(1).lower() != expected_cd_hash
+                  or not timestamp_match
+              ):
+                  raise SystemExit(f"signed facts do not match codesign output for {name}")
+              if timestamp_match.group(1).strip() != raw_timestamp:
+                  raise SystemExit(f"secure timestamp changed for {name}")
+              try:
+                  parsed_timestamp = datetime.datetime.strptime(
+                      raw_timestamp, "%b %d, %Y at %I:%M:%S %p"
+                  ).replace(tzinfo=datetime.timezone.utc)
+              except ValueError as error:
+                  raise SystemExit(f"unparseable secure timestamp for {name}: {raw_timestamp!r}") from error
+              binaries[name] = {
+                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  "cdHash": match.group(1).lower(),
+                  "timestamp": parsed_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  "hardenedRuntime": True,
+              }
+          notary_log_name = f"{pathlib.Path(os.environ['EXPECTED_ARCHIVE']).stem}.notarization-log.json"
+          evidence = {
+              "schemaVersion": 3,
+              "target": target,
+              "platform": "darwin",
+              "kind": "apple-developer-id",
+              "identity": {
+                  "teamId": team_id,
+                  "subject": subject,
+                  "certificateSha256": cert_sha,
+              },
+              "binaries": binaries,
+              "notarization": {
+                  "submissionId": submission_id,
+                  "status": "Accepted",
+                  "submissionResultSha256": hashlib.sha256(notary_path.read_bytes()).hexdigest(),
+                  "developerLog": {
+                      "name": notary_log_name,
+                      "sha256": hashlib.sha256(notary_log_path.read_bytes()).hexdigest(),
+                      "size": notary_log_path.stat().st_size,
+                  },
+              },
+          }
+          (root / "signing-evidence.json").write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+          final_archive=$(python3 scripts/package-artifact.py \
+            --target "$TARGET" \
+            --payload "build/${TARGET}/payload" \
+            --build-info "build/${TARGET}/build-info.json" \
+            --sources-file "build/${TARGET}/sources.env" \
+            --signing-evidence "build/${TARGET}/signing-evidence.json" \
+            --notarization-submission-result "build/${TARGET}/notarization-result.json" \
+            --notarization-log "build/${TARGET}/notarization-log.json" \
+            --output-dir "build/packages/${TARGET}")
+          final_sha=$(shasum -a 256 -- "$final_archive" | awk '{print $1}')
+          [[ "$final_archive" == "$EXPECTED_ARCHIVE" && "$final_sha" == "$EXPECTED_ARCHIVE_SHA" ]]
+          for binary in ffmpeg ffprobe; do
+            codesign --verify --strict --verbose=4 "build/${TARGET}/payload/${binary}"
+            codesign -vvvv -R="notarized" --check-notarization \
+              "build/${TARGET}/payload/${binary}"
+          done
+
+      - name: Upload signed macOS release candidate
+        id: upload-release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.target }}
+          path: build/packages/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Record signed candidate artifact binding
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload-release.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload-release.outputs.artifact-id }}
+          ARTIFACT_NAME: release-${{ matrix.target }}
+          HEAD_SHA: ${{ github.sha }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json, os, pathlib, re
+          artifact_id = os.environ["ARTIFACT_ID"]
+          digest = os.environ["ARTIFACT_DIGEST"].lower()
+          if not re.fullmatch(r"[1-9][0-9]*", artifact_id) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("upload-artifact returned an invalid artifact identity")
+          path = pathlib.Path("build/release-binding") / f"{os.environ['TARGET']}.json"
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps({
+              "schemaVersion": 1, "target": os.environ["TARGET"],
+              "artifactName": os.environ["ARTIFACT_NAME"], "artifactId": int(artifact_id),
+              "artifactDigest": digest, "runId": int(os.environ["GITHUB_RUN_ID"]),
+              "headSha": os.environ["HEAD_SHA"],
+          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload signed candidate binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-binding-${{ matrix.target }}
+          path: build/release-binding/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
+
+  resolve-release-artifacts:
+    name: Bind exact six release candidates
+    if: >-
+      always() &&
+      needs.prepare-sources.result == 'success' &&
+      needs.build.result == 'success' &&
+      (needs.prepare-sources.outputs.formal-release != 'true' ||
+        (needs.sign-and-notarize-macos.result == 'success' &&
+         needs.sign-windows.result == 'success'))
+    needs:
+      - prepare-sources
+      - build
+      - sign-and-notarize-macos
+      - sign-windows
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      darwin_arm64_id: ${{ steps.resolve.outputs.darwin_arm64_id }}
+      darwin_arm64_digest: ${{ steps.resolve.outputs.darwin_arm64_digest }}
+      darwin_x64_id: ${{ steps.resolve.outputs.darwin_x64_id }}
+      darwin_x64_digest: ${{ steps.resolve.outputs.darwin_x64_digest }}
+      linux_arm64_id: ${{ steps.resolve.outputs.linux_arm64_id }}
+      linux_arm64_digest: ${{ steps.resolve.outputs.linux_arm64_digest }}
+      linux_x64_id: ${{ steps.resolve.outputs.linux_x64_id }}
+      linux_x64_digest: ${{ steps.resolve.outputs.linux_x64_digest }}
+      win32_arm64_id: ${{ steps.resolve.outputs.win32_arm64_id }}
+      win32_arm64_digest: ${{ steps.resolve.outputs.win32_arm64_digest }}
+      win32_x64_id: ${{ steps.resolve.outputs.win32_x64_id }}
+      win32_x64_digest: ${{ steps.resolve.outputs.win32_x64_digest }}
+    steps:
+      - name: Download darwin-arm64 release binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-binding-darwin-arm64
+          path: bindings/darwin-arm64
+          digest-mismatch: error
+
+      - name: Download darwin-x64 release binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-binding-darwin-x64
+          path: bindings/darwin-x64
+          digest-mismatch: error
+
+      - name: Download linux-arm64 release binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-binding-linux-arm64
+          path: bindings/linux-arm64
+          digest-mismatch: error
+
+      - name: Download linux-x64 release binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-binding-linux-x64
+          path: bindings/linux-x64
+          digest-mismatch: error
+
+      - name: Download win32-arm64 release binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-binding-win32-arm64
+          path: bindings/win32-arm64
+          digest-mismatch: error
+
+      - name: Download win32-x64 release binding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-binding-win32-x64
+          path: bindings/win32-x64
+          digest-mismatch: error
+
+      - name: Resolve exact upload identities against the run API
+        id: resolve
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+
+          targets = (
+              "darwin-arm64", "darwin-x64", "linux-arm64",
+              "linux-x64", "win32-arm64", "win32-x64",
+          )
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          repository = os.environ["REPOSITORY"]
+
+          def api(path: str) -> object:
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repository}/{path}"], text=True
+              ))
+
+          expected_names = {
+              *(f"release-{target}" for target in targets),
+              *(f"release-binding-{target}" for target in targets),
+          }
+          listing = api(f"actions/runs/{run_id}/artifacts?per_page=100")
+          run_artifacts = {
+              item["name"] for item in listing["artifacts"]
+              if item.get("workflow_run", {}).get("id") == run_id
+              and item["name"].startswith("release-")
+          }
+          if run_artifacts != expected_names:
+              raise SystemExit(
+                  f"release artifact set mismatch: expected={sorted(expected_names)}, "
+                  f"actual={sorted(run_artifacts)}"
+              )
+
+          output_lines = []
+          for target in targets:
+              directory = pathlib.Path("bindings") / target
+              files = [path for path in directory.rglob("*") if path.is_file()]
+              if len(files) != 1 or files[0].name != f"{target}.json" or files[0].is_symlink():
+                  raise SystemExit(f"invalid release binding artifact for {target}")
+              record = json.loads(files[0].read_text(encoding="utf-8"))
+              expected_keys = {
+                  "schemaVersion", "target", "artifactName", "artifactId",
+                  "artifactDigest", "runId", "headSha",
+              }
+              if set(record) != expected_keys:
+                  raise SystemExit(f"invalid release binding schema for {target}")
+              if (
+                  record["schemaVersion"] != 1
+                  or record["target"] != target
+                  or record["artifactName"] != f"release-{target}"
+                  or record["runId"] != run_id
+                  or record["headSha"] != os.environ["EXPECTED_HEAD_SHA"]
+                  or not isinstance(record["artifactId"], int)
+                  or not re.fullmatch(r"[0-9a-f]{64}", record["artifactDigest"])
+              ):
+                  raise SystemExit(f"release binding value mismatch for {target}")
+              artifact = api(f"actions/artifacts/{record['artifactId']}")
+              api_digest = str(artifact.get("digest", "")).removeprefix("sha256:").lower()
+              workflow_run = artifact.get("workflow_run") or {}
+              if (
+                  artifact.get("name") != record["artifactName"]
+                  or artifact.get("expired") is not False
+                  or api_digest != record["artifactDigest"]
+                  or workflow_run.get("id") != run_id
+                  or workflow_run.get("head_sha") != record["headSha"]
+              ):
+                  raise SystemExit(f"release artifact API binding mismatch for {target}")
+              key = target.replace("-", "_")
+              output_lines.extend((
+                  f"{key}_id={record['artifactId']}",
+                  f"{key}_digest={record['artifactDigest']}",
+              ))
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write("\n".join(output_lines) + "\n")
+          PY
+
+  macos-signed-smoke:
+    name: Secret-free signed smoke ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - resolve-release-artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-26
+            artifact_id: ${{ needs.resolve-release-artifacts.outputs.darwin_arm64_id }}
+            unsigned_id: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_id }}
+          - target: darwin-x64
+            runner: macos-26-intel
+            artifact_id: ${{ needs.resolve-release-artifacts.outputs.darwin_x64_id }}
+            unsigned_id: ${{ needs.resolve-signing-inputs.outputs.darwin_x64_id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out verification code without signing environment
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download exact signed macOS candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.artifact_id }}
+          path: dist/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download exact bound pre-signing macOS input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.unsigned_id }}
+          path: build/unsigned/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Independently verify identity and run complete native smoke
+        env:
+          EXPECTED_MACOS_CERT_SHA256: ${{ vars.EXPECTED_MACOS_CERT_SHA256 }}
+          EXPECTED_MACOS_TEAM_ID: ${{ vars.EXPECTED_MACOS_TEAM_ID }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          shopt -s nullglob
+          archives=("dist/${TARGET}"/*.zip)
+          [[ ${#archives[@]} -eq 1 ]]
+          metadata_files=("dist/${TARGET}"/*.metadata.json)
+          [[ ${#metadata_files[@]} -eq 1 ]]
+          notary_logs=("dist/${TARGET}"/*.notarization-log.json)
+          [[ ${#notary_logs[@]} -eq 1 ]]
+          payload="build/${TARGET}/payload"
+          mkdir -p -- "$payload"
+          ditto -x -k -- "${archives[0]}" "$payload"
+          [[ -f "$payload/BUILD-INFO.json" && ! -L "$payload/BUILD-INFO.json" ]]
+          install -m 0644 "$payload/BUILD-INFO.json" "build/${TARGET}/build-info.json"
+          for binary in ffmpeg ffprobe; do
+            [[ -f "$payload/$binary" && ! -L "$payload/$binary" && -x "$payload/$binary" ]] || {
+              echo "signed archive lost the executable mode for ${binary}" >&2
+              exit 1
+            }
+          done
+
+          python3 -I - "$TARGET" <<'PY'
+          import pathlib
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import required_license_files
+
+          target = sys.argv[1]
+          unsigned = pathlib.Path("build/unsigned") / target
+          signed = pathlib.Path("build") / target / "payload"
+          entries = list(unsigned.rglob("*"))
+          if any(path.is_symlink() for path in entries):
+              raise SystemExit("pre-signing macOS input contains a symlink")
+          if any(not path.is_file() and not path.is_dir() for path in entries):
+              raise SystemExit("pre-signing macOS input contains a special file")
+          actual = {
+              path.relative_to(unsigned).as_posix()
+              for path in entries
+              if path.is_file()
+          }
+          expected = {
+              "build-info.json",
+              "sources.env",
+              "payload/configure.txt",
+              "payload/ffmpeg",
+              "payload/ffprobe",
+              *(f"payload/LICENSES/{name}" for name in required_license_files(target)),
+          }
+          if actual != expected:
+              raise SystemExit("pre-signing macOS input member set is not exact")
+          if (unsigned / "sources.env").read_bytes() != pathlib.Path("sources.env").read_bytes():
+              raise SystemExit("pre-signing macOS source lock differs from control code")
+          if (unsigned / "build-info.json").read_bytes() != (signed / "BUILD-INFO.json").read_bytes():
+              raise SystemExit("macOS BUILD-INFO changed during signing")
+          for name in ("configure.txt", *(f"LICENSES/{item}" for item in required_license_files(target))):
+              if (unsigned / "payload" / name).read_bytes() != (signed / name).read_bytes():
+                  raise SystemExit(f"non-binary macOS payload changed during signing: {name}")
+          PY
+
+          for binary in ffmpeg ffprobe; do
+            python3 -I scripts/verify_macho_codesign_delta.py \
+              "build/unsigned/${TARGET}/payload/${binary}" \
+              "$payload/${binary}"
+          done
+
+          expected_cert=$(printf '%s' "$EXPECTED_MACOS_CERT_SHA256" | tr '[:upper:]' '[:lower:]')
+          [[ "$EXPECTED_MACOS_TEAM_ID" =~ ^[A-Z0-9]{10}$ && "$expected_cert" =~ ^[0-9a-f]{64}$ ]]
+          for binary in ffmpeg ffprobe; do
+            path="$payload/$binary"
+            codesign --verify --strict --verbose=4 "$path"
+            display=$(LC_ALL=C TZ=UTC codesign --display --verbose=4 "$path" 2>&1)
+            team_id=$(awk -F= '$1 == "TeamIdentifier" { print $2; exit }' <<<"$display")
+            timestamp=$(awk -F= '$1 == "Timestamp" { sub(/^[^=]*=/, ""); print; exit }' <<<"$display")
+            [[ "$team_id" == "$EXPECTED_MACOS_TEAM_ID" && -n "$timestamp" ]]
+            /usr/bin/python3 -I -c '
+          import sys
+          sys.path.insert(0, sys.argv[1])
+          from pipeline_lib import validate_codesign_hardened_runtime
+          try:
+              validate_codesign_hardened_runtime(sys.stdin.read())
+          except ValueError as error:
+              raise SystemExit(str(error))
+          ' scripts <<<"$display"
+            cert_dir=$(mktemp -d "${RUNNER_TEMP}/motrix-cert.XXXXXX")
+            codesign --display --extract-certificates="$cert_dir/cert" "$path"
+            [[ -f "$cert_dir/cert0" ]]
+            cert_sha=$(shasum -a 256 -- "$cert_dir/cert0" | awk '{print $1}')
+            rm -rf -- "$cert_dir"
+            [[ "$cert_sha" == "$expected_cert" ]]
+            codesign -vvvv -R="notarized" --check-notarization "$path"
+          done
+
+          ARCHIVE="${archives[0]}" METADATA="${metadata_files[0]}" \
+            NOTARY_LOG="${notary_logs[0]}" /usr/bin/python3 -I - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import (
+              load_json_file,
+              validate_codesign_hardened_runtime,
+              validate_notarization_log,
+          )
+
+          archive = pathlib.Path(os.environ["ARCHIVE"])
+          metadata_path = pathlib.Path(os.environ["METADATA"])
+          notary_log_path = pathlib.Path(os.environ["NOTARY_LOG"])
+          entries = list(archive.parent.iterdir())
+          if (
+              any(not path.is_file() or path.is_symlink() for path in entries)
+              or {path.name for path in entries}
+              != {archive.name, metadata_path.name, notary_log_path.name}
+          ):
+              raise SystemExit("signed macOS candidate asset set is not exact")
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+          target = os.environ["TARGET"]
+          signing = metadata.get("signing") or {}
+          identity = signing.get("identity") or {}
+          if (
+              metadata.get("target") != target
+              or metadata.get("archive") != archive.name
+              or metadata.get("archiveSize") != archive.stat().st_size
+              or metadata.get("archiveSha256") != hashlib.sha256(archive.read_bytes()).hexdigest()
+              or signing.get("target") != target
+              or signing.get("schemaVersion") != 3
+              or signing.get("platform") != "darwin"
+              or signing.get("kind") != "apple-developer-id"
+              or identity.get("teamId") != os.environ["EXPECTED_MACOS_TEAM_ID"]
+              or identity.get("certificateSha256") != os.environ["EXPECTED_MACOS_CERT_SHA256"].lower()
+          ):
+              raise SystemExit("signed macOS archive metadata identity mismatch")
+          for name in ("ffmpeg", "ffprobe"):
+              path = pathlib.Path("build") / target / "payload" / name
+              record = (signing.get("binaries") or {}).get(name) or {}
+              display = subprocess.run(
+                  ["codesign", "--display", "--verbose=4", str(path)],
+                  check=True,
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+              ).stdout
+              cd_hash = re.search(r"^CDHash=([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", display, re.MULTILINE)
+              timestamp = re.search(r"^Timestamp=(.+)$", display, re.MULTILINE)
+              try:
+                  validate_codesign_hardened_runtime(display)
+              except ValueError as error:
+                  raise SystemExit(
+                      f"invalid hardened-runtime evidence for {name}: {error}"
+                  ) from error
+              if not cd_hash or not timestamp:
+                  raise SystemExit(f"incomplete codesign evidence for {name}")
+              parsed = datetime.datetime.strptime(
+                  timestamp.group(1).strip(), "%b %d, %Y at %I:%M:%S %p"
+              ).replace(tzinfo=datetime.timezone.utc)
+              if (
+                  record.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest()
+                  or record.get("cdHash") != cd_hash.group(1).lower()
+                  or record.get("timestamp") != parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
+                  or record.get("hardenedRuntime") is not True
+              ):
+                  raise SystemExit(f"signed macOS binary evidence mismatch for {name}")
+          notary = signing.get("notarization") or {}
+          developer_log = notary.get("developerLog") or {}
+          if (
+              notary.get("status") != "Accepted"
+              or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", str(notary.get("submissionId", "")))
+              or not re.fullmatch(r"[0-9a-f]{64}", str(notary.get("submissionResultSha256", "")))
+              or developer_log.get("name") != notary_log_path.name
+              or developer_log.get("size") != notary_log_path.stat().st_size
+              or developer_log.get("sha256") != hashlib.sha256(notary_log_path.read_bytes()).hexdigest()
+          ):
+              raise SystemExit("invalid Apple notarization evidence")
+          validate_notarization_log(
+              load_json_file(notary_log_path, "notarization developer log", maximum=8 * 1024 * 1024),
+              submission_id=notary["submissionId"],
+              archive_name=archive.name,
+              archive_sha256=metadata["archiveSha256"],
+          )
+          PY
+
+          scripts/verify-binary.sh "$TARGET"
+          smoke_dir=$(mktemp -d "${RUNNER_TEMP}/motrix-final-smoke.XXXXXX")
+          trap 'rm -rf -- "$smoke_dir"' EXIT
+          ffmpeg="$payload/ffmpeg"
+          ffprobe="$payload/ffprobe"
+          scripts/motrix-media-smoke.sh "$ffmpeg" "$ffprobe" "$smoke_dir"
+
+  windows-native-smoke:
+    name: Secret-free native smoke ${{ matrix.target }}
+    needs:
+      - prepare-sources
+      - resolve-release-artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            runner: windows-2025
+            signtool_arch: x64
+            artifact_id: ${{ needs.resolve-release-artifacts.outputs.win32_x64_id }}
+          - target: win32-arm64
+            runner: windows-11-vs2026-arm
+            signtool_arch: arm64
+            artifact_id: ${{ needs.resolve-release-artifacts.outputs.win32_arm64_id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected native verification code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download exact Windows release candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.artifact_id }}
+          path: dist
+          digest-mismatch: error
+
+      - name: Verify unsigned Windows policy and run complete native smoke
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $archives = @(Get-ChildItem -LiteralPath dist -Filter '*.zip' -File)
+          $metadataFiles = @(Get-ChildItem -LiteralPath dist -Filter '*.metadata.json' -File)
+          if ($archives.Count -ne 1 -or $metadataFiles.Count -ne 1) {
+            throw 'Expected exactly one ZIP and one metadata file'
+          }
+          $metadata = Get-Content -LiteralPath $metadataFiles[0].FullName -Raw | ConvertFrom-Json -Depth 20
+          $archiveSha = (Get-FileHash -LiteralPath $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($metadata.target -cne $env:TARGET -or $null -ne $metadata.signing -or
+              $metadata.archive -cne $archives[0].Name -or
+              [long]$metadata.archiveSize -ne $archives[0].Length -or
+              $metadata.archiveSha256 -cne $archiveSha) {
+            throw 'Windows archive binding or unsigned policy mismatch'
+          }
+          $extractDir = Join-Path $env:RUNNER_TEMP 'motrix-ffmpeg-release-smoke'
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $extractDir
+          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
+            $binary = Join-Path $extractDir $name
+            $hashField = if ($name -eq 'ffmpeg.exe') { 'binarySha256' } else { 'ffprobeSha256' }
+            if ((Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant() -cne $metadata.$hashField) {
+              throw "Binary digest mismatch: $name"
+            }
+            if ((Get-AuthenticodeSignature -FilePath $binary).Status -ne 'NotSigned') {
+              throw "Project-signature policy requires unsigned PE: $name"
+            }
+          }
+          & scripts/motrix-media-smoke.ps1 `
+            -FFmpegPath (Join-Path $extractDir 'ffmpeg.exe') `
+            -FFprobePath (Join-Path $extractDir 'ffprobe.exe') `
+            -WorkDir (Join-Path $extractDir 'motrix-media-smoke')
+
+  windows-signed-structural:
+    name: Secret-free signed structural verification ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - resolve-release-artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            unsigned_id: ${{ needs.resolve-signing-inputs.outputs.win32_x64_id }}
+            signed_id: ${{ needs.resolve-release-artifacts.outputs.win32_x64_id }}
+          - target: win32-arm64
+            unsigned_id: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_id }}
+            signed_id: ${{ needs.resolve-release-artifacts.outputs.win32_arm64_id }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected structural verification code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download exact bound pre-signing input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.unsigned_id }}
+          path: build/unsigned/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download exact bound signed candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.signed_id }}
+          path: build/signed-candidate/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download bound authenticated Windows inspection toolchain
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
+          path: build/source-cache/downloads
+          digest-mismatch: error
+
+      - name: Install structural inspection prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            file \
+            xz-utils
+
+      - name: Safely stage and bind the exact signed and unsigned payloads
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -I - "$TARGET" <<'PY'
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          import pathlib
+          import stat
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import load_sources, required_license_files
+
+          module_path = pathlib.Path("scripts/assemble-release.py")
+          specification = importlib.util.spec_from_file_location(
+              "motrix_assemble_release", module_path
+          )
+          if specification is None or specification.loader is None:
+              raise SystemExit("could not load the protected archive validator")
+          assemble_release = importlib.util.module_from_spec(specification)
+          sys.modules[specification.name] = assemble_release
+          specification.loader.exec_module(assemble_release)
+
+          target = sys.argv[1]
+          sources = load_sources(pathlib.Path("sources.env"))
+          unsigned_root = pathlib.Path("build/unsigned") / target
+          candidate_root = pathlib.Path("build/signed-candidate") / target
+          output_root = pathlib.Path("build") / target
+          if output_root.exists() or output_root.is_symlink():
+              raise SystemExit("signed staging destination already exists")
+
+          candidate_entries = list(candidate_root.iterdir())
+          if any(not path.is_file() or path.is_symlink() for path in candidate_entries):
+              raise SystemExit("signed candidate contains a non-regular entry")
+          metadata_files = [path for path in candidate_entries if path.name.endswith(".metadata.json")]
+          archives = [path for path in candidate_entries if path.suffix == ".zip"]
+          if len(metadata_files) != 1 or len(archives) != 1 or len(candidate_entries) != 2:
+              raise SystemExit("signed candidate must contain exactly one ZIP and one metadata file")
+          metadata_path = metadata_files[0]
+          if metadata_path.stat().st_size <= 0 or metadata_path.stat().st_size > 256 * 1024:
+              raise SystemExit("signed candidate metadata size is invalid")
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+          archive = archives[0]
+          signing = metadata.get("signing")
+          if (
+              metadata.get("schemaVersion") != 2
+              or metadata.get("target") != target
+              or metadata.get("archive") != archive.name
+              or metadata.get("archiveSize") != archive.stat().st_size
+              or metadata.get("archiveSha256")
+              != hashlib.sha256(archive.read_bytes()).hexdigest()
+              or signing is not None
+          ):
+              raise SystemExit("signed candidate metadata binding is invalid")
+
+          files = assemble_release.archive_files(
+              archive, int(sources["SOURCE_DATE_EPOCH"])
+          )
+          binaries = {"ffmpeg.exe", "ffprobe.exe"}
+          expected_archive = (
+              assemble_release.BASE_ARCHIVE_ENTRIES
+              | binaries
+              | {f"LICENSES/{name}" for name in required_license_files(target)}
+          )
+          if set(files) != expected_archive:
+              raise SystemExit("signed archive member set is not exact")
+
+          all_unsigned_entries = list(unsigned_root.rglob("*"))
+          if any(path.is_symlink() for path in all_unsigned_entries):
+              raise SystemExit("pre-signing input contains a symlink")
+          if any(not path.is_file() and not path.is_dir() for path in all_unsigned_entries):
+              raise SystemExit("pre-signing input contains a special file")
+          actual_unsigned = {
+              path.relative_to(unsigned_root).as_posix()
+              for path in all_unsigned_entries
+              if path.is_file()
+          }
+          generated = {"BUILD-INFO.json", "README.txt", "LICENSES.json"}
+          expected_unsigned = {"build-info.json", "sources.env"} | {
+              f"payload/{name}" for name in expected_archive - generated
+          } | {
+              f"work/link-maps/{program}{suffix}"
+              for program in ("ffmpeg", "ffprobe")
+              for suffix in (".map", ".link-trace.txt")
+          }
+          if actual_unsigned != expected_unsigned:
+              raise SystemExit("pre-signing payload member set is not exact")
+          if (unsigned_root / "sources.env").read_bytes() != pathlib.Path("sources.env").read_bytes():
+              raise SystemExit("pre-signing source lock differs from protected control code")
+          if (unsigned_root / "build-info.json").read_bytes() != files["BUILD-INFO.json"]:
+              raise SystemExit("BUILD-INFO changed between build and signed packaging")
+          for name in expected_archive - generated:
+              if (unsigned_root / "payload" / name).read_bytes() != files[name]:
+                  raise SystemExit(f"non-binary payload changed during signing: {name}")
+
+          payload = output_root / "payload"
+          payload.mkdir(parents=True, mode=0o700)
+          for name, data in files.items():
+              destination = payload / name
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              with destination.open("xb") as handle:
+                  handle.write(data)
+              destination.chmod(0o755 if name in binaries else 0o644)
+          with (output_root / "build-info.json").open("xb") as handle:
+              handle.write(files["BUILD-INFO.json"])
+          (output_root / "build-info.json").chmod(0o644)
+          PY
+
+      - name: Extract the checksum-bound inspection toolchain
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # shellcheck disable=SC1091
+          source scripts/common.sh
+          toolchain_archive="build/source-cache/downloads/${LLVM_MINGW_ARCHIVE}"
+          entries=(build/source-cache/downloads/*)
+          [[ ${#entries[@]} -eq 1 && "${entries[0]}" == "$toolchain_archive" ]]
+          extract_tar_strip_one \
+            "$toolchain_archive" \
+            "build/${TARGET}/work/toolchain" \
+            "$LLVM_MINGW_SHA256"
+
+      - name: Re-run complete PE policy and prove append-only Authenticode delta
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scripts/verify-binary.sh --final-binary "$TARGET"
+          for binary in ffmpeg.exe ffprobe.exe; do
+            cmp "build/unsigned/${TARGET}/payload/${binary}" "build/${TARGET}/payload/${binary}"
+            python3 -I scripts/verify_authenticode_delta.py --unsigned-only \
+              "build/${TARGET}/payload/${binary}"
+          done
+
+  assemble:
+    name: Verify and assemble exact release set
+    if: >-
+      always() &&
+      needs.prepare-sources.result == 'success' &&
+      needs.resolve-release-artifacts.result == 'success' &&
+      needs.windows-native-smoke.result == 'success' &&
+      (needs.prepare-sources.outputs.formal-release != 'true' ||
+       (needs.macos-signed-smoke.result == 'success' &&
+        needs.windows-signed-structural.result == 'success'))
+    needs:
+      - prepare-sources
+      - resolve-release-artifacts
+      - macos-signed-smoke
+      - windows-native-smoke
+      - windows-signed-structural
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out protected assembly control code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download darwin-arm64 candidate by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_arm64_id }}
+          path: build/candidates/darwin-arm64
+          digest-mismatch: error
+
+      - name: Download darwin-x64 candidate by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_x64_id }}
+          path: build/candidates/darwin-x64
+          digest-mismatch: error
+
+      - name: Download linux-arm64 candidate by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_arm64_id }}
+          path: build/candidates/linux-arm64
+          digest-mismatch: error
+
+      - name: Download linux-x64 candidate by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_x64_id }}
+          path: build/candidates/linux-x64
+          digest-mismatch: error
+
+      - name: Download win32-arm64 candidate by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_arm64_id }}
+          path: build/candidates/win32-arm64
+          digest-mismatch: error
+
+      - name: Download win32-x64 candidate by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_x64_id }}
+          path: build/candidates/win32-x64
+          digest-mismatch: error
+
+      - name: Download bound redistributable source assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.sources-artifact-id }}
+          path: build/release-sources
+          digest-mismatch: error
+
+      - name: Reject extra files and flatten only the six exact candidates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import pathlib
+          import shutil
+
+          targets = (
+              "darwin-arm64", "darwin-x64", "linux-arm64",
+              "linux-x64", "win32-arm64", "win32-x64",
+          )
+          output = pathlib.Path("build/candidates-flat")
+          output.mkdir(parents=True, exist_ok=False)
+          for target in targets:
+              directory = pathlib.Path("build/candidates") / target
+              entries = list(directory.iterdir())
+              if any(path.is_dir() or path.is_symlink() for path in entries):
+                  raise SystemExit(f"candidate {target} contains a directory or symlink")
+              metadata_files = [path for path in entries if path.name.endswith(".metadata.json")]
+              if len(metadata_files) != 1:
+                  raise SystemExit(f"candidate {target} must contain exactly one metadata file")
+              metadata = json.loads(metadata_files[0].read_text(encoding="utf-8"))
+              archive_name = metadata.get("archive")
+              if metadata.get("target") != target or not isinstance(archive_name, str):
+                  raise SystemExit(f"candidate metadata identity mismatch for {target}")
+              expected = {metadata_files[0].name, archive_name}
+              signing = metadata.get("signing")
+              if target.startswith("darwin-") and signing is not None:
+                  notary = signing.get("notarization") or {}
+                  developer_log = notary.get("developerLog") or {}
+                  expected_log_name = f"{pathlib.Path(archive_name).stem}.notarization-log.json"
+                  if (
+                      signing.get("schemaVersion") != 3
+                      or developer_log.get("name") != expected_log_name
+                  ):
+                      raise SystemExit(f"candidate notarization log identity mismatch for {target}")
+                  expected.add(expected_log_name)
+              if {path.name for path in entries} != expected:
+                  raise SystemExit(f"candidate {target} contains unexpected files")
+              for path in entries:
+                  destination = output / path.name
+                  if destination.exists():
+                      raise SystemExit(f"duplicate flattened candidate path: {path.name}")
+                  shutil.copyfile(path, destination)
+          PY
+
+      - name: Assemble checked release set
+        env:
+          CONTROL_SHA: ${{ github.sha }}
+          DOCUMENT_CREATED: ${{ needs.prepare-sources.outputs.release-created }}
+          EVENT_COMMIT: ${{ needs.prepare-sources.outputs.event-commit }}
+          EXPECTED_MACOS_CERT_SHA256: ${{ vars.EXPECTED_MACOS_CERT_SHA256 }}
+          EXPECTED_MACOS_TEAM_ID: ${{ vars.EXPECTED_MACOS_TEAM_ID }}
+
+          FORMAL_RELEASE: ${{ needs.prepare-sources.outputs.formal-release }}
+          RELEASE_TAG_OBJECT_SHA: ${{ needs.prepare-sources.outputs.tag-object-sha }}
+          RELEASE_TAG_SIGNER_FINGERPRINT: ${{ needs.prepare-sources.outputs.tag-signer-fingerprint }}
+          RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${DOCUMENT_CREATED:?missing document creation timestamp}"
+          release_args=()
+          if [[ "$FORMAL_RELEASE" == true ]]; then
+            : "${EXPECTED_MACOS_TEAM_ID:?missing EXPECTED_MACOS_TEAM_ID}"
+            : "${EXPECTED_MACOS_CERT_SHA256:?missing EXPECTED_MACOS_CERT_SHA256}"
+
+            : "${RELEASE_TAG_OBJECT_SHA:?missing verified release tag object SHA}"
+            : "${RELEASE_TAG_SIGNER_FINGERPRINT:?missing verified release tag signer fingerprint}"
+            release_args+=(
+              --release-tag "$RELEASE_TAG"
+              --event-sha "$EVENT_COMMIT"
+              --control-sha "$CONTROL_SHA"
+              --tag-object-sha "$RELEASE_TAG_OBJECT_SHA"
+              --release-tag-signer-fingerprint "$RELEASE_TAG_SIGNER_FINGERPRINT"
+              --expected-macos-team-id "$EXPECTED_MACOS_TEAM_ID"
+              --expected-macos-cert-sha256 "$EXPECTED_MACOS_CERT_SHA256"
+              --windows-project-signature
+            )
+          fi
+          python3 scripts/assemble-release.py \
+            --input-dir build/candidates-flat \
+            --source-dir build/release-sources \
+            --sources-file build/release-sources/sources.env \
+            --output-dir dist \
+            --document-created "$DOCUMENT_CREATED" \
+            --repository "$REPOSITORY" \
+            "${release_args[@]}"
+          (cd dist && sha256sum --check SHA256SUMS)
+
+      - name: Upload complete release set
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: assembled-release-${{ needs.prepare-sources.outputs.release-version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+  sign-manifest:
+    name: Sign exact verified release manifest with pinned Ed25519 key
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - assemble
+      - resolve-release-artifacts
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    environment: release-manifest-signing
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Check out protected manifest signing code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download exact independently verified assembled release
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.assemble.outputs.artifact-id }}
+          path: dist
+          digest-mismatch: error
+      - name: Download independently verified darwin-arm64 reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_arm64_id }}
+          path: build/reference-targets/darwin-arm64
+          digest-mismatch: error
+      - name: Download independently verified darwin-x64 reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_x64_id }}
+          path: build/reference-targets/darwin-x64
+          digest-mismatch: error
+      - name: Download independently verified linux-arm64 reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_arm64_id }}
+          path: build/reference-targets/linux-arm64
+          digest-mismatch: error
+      - name: Download independently verified linux-x64 reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_x64_id }}
+          path: build/reference-targets/linux-x64
+          digest-mismatch: error
+      - name: Download independently verified win32-arm64 reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_arm64_id }}
+          path: build/reference-targets/win32-arm64
+          digest-mismatch: error
+      - name: Download independently verified win32-x64 reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_x64_id }}
+          path: build/reference-targets/win32-x64
+          digest-mismatch: error
+      - name: Download independently authenticated source reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.prepare-sources.outputs.sources-artifact-id }}
+          path: build/reference-sources
+          digest-mismatch: error
+      - name: Install source revalidation prerequisites without signing credentials
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gnupg xz-utils
+      - name: Revalidate complete release and sign manifest only
+        env:
+          FFMPEG_MANIFEST_PRIVATE_KEY: ${{ secrets.FFMPEG_MANIFEST_PRIVATE_KEY }}
+          RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+          CONTROL_SHA: ${{ github.sha }}
+          EXPECTED_MACOS_TEAM_ID: ${{ vars.EXPECTED_MACOS_TEAM_ID }}
+          EXPECTED_MACOS_CERT_SHA256: ${{ vars.EXPECTED_MACOS_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/sign_release_manifest.py sign \
+            --directory dist --tag "$RELEASE_TAG" --commit "$CONTROL_SHA" \
+            --reference-dir build/reference-targets --source-reference-dir build/reference-sources \
+            --expected-macos-team-id "$EXPECTED_MACOS_TEAM_ID" \
+            --expected-macos-cert-sha256 "$EXPECTED_MACOS_CERT_SHA256"
+      - name: Upload signed complete release set
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-manifest-release-${{ needs.prepare-sources.outputs.release-version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+  attest:
+    name: Attest release provenance
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - assemble
+      - sign-manifest
+      - macos-signed-smoke
+      - windows-native-smoke
+      - windows-signed-structural
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Download complete release set by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.sign-manifest.outputs.artifact-id }}
+          path: dist
+          digest-mismatch: error
+
+      - name: Check out protected attestation verification code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify pinned manifest signature before external publication
+        env:
+          RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+          CONTROL_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/sign_release_manifest.py verify --directory dist --tag "$RELEASE_TAG" --commit "$CONTROL_SHA"
+
+      - name: Recheck exact attestation subjects
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (cd dist && sha256sum --check SHA256SUMS)
+          /usr/bin/python3 -I - <<'PY'
+          import pathlib
+          import re
+
+          root = pathlib.Path("dist")
+          entries = list(root.iterdir())
+          if not entries or any(not path.is_file() or path.is_symlink() for path in entries):
+              raise SystemExit("attestation input contains a non-regular entry")
+          lines = (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+          covered = set()
+          for line in lines:
+              match = re.fullmatch(r"[0-9a-f]{64}  ([^/]+)", line)
+              if not match:
+                  raise SystemExit("invalid SHA256SUMS entry")
+              covered.add(match.group(1))
+          expected = {path.name for path in entries} - {"SHA256SUMS"}
+          if covered != expected:
+              raise SystemExit("SHA256SUMS does not cover the exact release asset set")
+          PY
+
+      - name: Generate GitHub build provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: dist/*
+
+      - name: Generate signed SBOM attestation for all six archives
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            dist/ffmpeg-*-darwin-arm64.zip
+            dist/ffmpeg-*-darwin-x64.zip
+            dist/ffmpeg-*-linux-arm64.tar.gz
+            dist/ffmpeg-*-linux-x64.tar.gz
+            dist/ffmpeg-*-win32-arm64.zip
+            dist/ffmpeg-*-win32-x64.zip
+          sbom-path: dist/sbom.spdx.json
+
+  publish:
+    name: Publish immutable verified GitHub Release
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - assemble
+      - sign-manifest
+      - attest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    environment: github-release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out protected publishing control code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download complete release set by bound ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.sign-manifest.outputs.artifact-id }}
+          path: dist
+          digest-mismatch: error
+
+      - name: Verify pinned manifest signature before external publication
+        env:
+          RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+          CONTROL_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/sign_release_manifest.py verify --directory dist --tag "$RELEASE_TAG" --commit "$CONTROL_SHA"
+
+      - name: Require repository immutable releases policy
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_ADMIN_TOKEN }}
+          REPOSITORY: motrixapp/ffmpeg-static
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${GH_TOKEN:?github-release must provide RELEASE_ADMIN_TOKEN with Administration:read}"
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${REPOSITORY}/immutable-releases" \
+            >"${RUNNER_TEMP}/immutable-releases.json"
+          export -n GH_TOKEN
+          unset GH_TOKEN
+          /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          policy = json.loads(
+              (pathlib.Path(os.environ["RUNNER_TEMP"]) / "immutable-releases.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if policy.get("enabled") is not True:
+              raise SystemExit("repository immutable releases policy is not enabled")
+          PY
+
+      - name: Create draft, verify exact remote assets, and publish
+        env:
+          EVENT_COMMIT: ${{ needs.prepare-sources.outputs.event-commit }}
+          EXPECTED_TAG_OBJECT_SHA: ${{ needs.prepare-sources.outputs.tag-object-sha }}
+          EXPECTED_RELEASE_TAGGER_EMAIL: ${{ vars.EXPECTED_RELEASE_TAGGER_EMAIL }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+          RELEASE_VERSION: ${{ needs.prepare-sources.outputs.release-version }}
+          REPOSITORY: motrixapp/ffmpeg-static
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          (cd dist && sha256sum --check SHA256SUMS)
+
+          release_api() {
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "$@"
+          }
+
+          verify_remote_tag() {
+            local direct peeled refs
+            refs=$(git ls-remote origin \
+              "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")
+            # The awk field references are intentionally literal.
+            # shellcheck disable=SC2016
+            direct=$(awk -v ref="refs/tags/${RELEASE_TAG}" '$2 == ref { print $1 }' <<<"$refs")
+            # The awk field references are intentionally literal.
+            # shellcheck disable=SC2016
+            peeled=$(awk -v ref="refs/tags/${RELEASE_TAG}^{}" '$2 == ref { print $1 }' <<<"$refs")
+            [[ "$EXPECTED_TAG_OBJECT_SHA" =~ ^[0-9a-f]{40}$ \
+               && "$direct" == "$EXPECTED_TAG_OBJECT_SHA" \
+               && -n "$peeled" && "$peeled" == "$EVENT_COMMIT" ]] || {
+              echo "remote annotated tag no longer resolves to the release commit" >&2
+              exit 1
+            }
+            [[ -n "$EXPECTED_RELEASE_TAGGER_EMAIL" && "$EXPECTED_RELEASE_TAGGER_EMAIL" != *$'\n'* ]]
+            release_api "repos/${REPOSITORY}/git/tags/${direct}" \
+              >"${RUNNER_TEMP}/release-tag-object.json"
+            TAG_OBJECT_SHA=$direct /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          tag = json.loads(
+              (pathlib.Path(os.environ["RUNNER_TEMP"]) / "release-tag-object.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          verification = tag.get("verification") or {}
+          target = tag.get("object") or {}
+          tagger = tag.get("tagger") or {}
+          if tag.get("sha") != os.environ["TAG_OBJECT_SHA"]:
+              raise SystemExit("GitHub tag object identity mismatch")
+          if tag.get("tag") != os.environ["RELEASE_TAG"]:
+              raise SystemExit("annotated tag object name changed")
+          if target.get("type") != "commit" or target.get("sha") != os.environ["EVENT_COMMIT"]:
+              raise SystemExit("annotated tag target changed")
+          if verification.get("verified") is not True or verification.get("reason") != "valid":
+              raise SystemExit("annotated release tag signature is no longer valid")
+          payload = verification.get("payload")
+          if not isinstance(payload, str) or not payload or len(payload) > 1048576:
+              raise SystemExit("annotated tag signed payload is missing or oversized")
+          header_text, separator, _message = payload.partition("\n\n")
+          if not separator:
+              raise SystemExit("annotated tag signed payload has no header boundary")
+          headers = {}
+          for line in header_text.splitlines():
+              key, space, value = line.partition(" ")
+              if not space or key in headers:
+                  raise SystemExit("annotated tag signed payload has malformed headers")
+              headers[key] = value
+          if (
+              headers.get("object") != os.environ["EVENT_COMMIT"]
+              or headers.get("type") != "commit"
+              or headers.get("tag") != os.environ["RELEASE_TAG"]
+          ):
+              raise SystemExit("annotated tag signed payload identity changed")
+          if tagger.get("email") != os.environ["EXPECTED_RELEASE_TAGGER_EMAIL"]:
+              raise SystemExit("annotated release tag signed tagger changed")
+          PY
+          }
+
+          verify_release_file() {
+            local release_file=$1
+            local expected_release_id=$2
+            local expected_state=$3
+            local expected_body=$4
+            EXPECTED_RELEASE_BODY=$expected_body \
+              EXPECTED_RELEASE_ID=$expected_release_id \
+              EXPECTED_RELEASE_FILE=$release_file \
+              EXPECTED_RELEASE_STATE=$expected_state \
+              /usr/bin/python3 -I - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import validate_github_release_identity
+
+          dist = pathlib.Path("dist")
+          release = json.loads(
+              pathlib.Path(os.environ["EXPECTED_RELEASE_FILE"]).read_text(encoding="utf-8")
+          )
+          validate_github_release_identity(
+              release,
+              repository=os.environ["REPOSITORY"],
+              release_id=int(os.environ["EXPECTED_RELEASE_ID"]),
+              tag=os.environ["RELEASE_TAG"],
+              target_commitish="main",
+              title=f"FFmpeg {os.environ['RELEASE_VERSION']} for Motrix",
+              body=os.environ["EXPECTED_RELEASE_BODY"],
+              state=os.environ["EXPECTED_RELEASE_STATE"],
+          )
+          local = {}
+          for path in dist.iterdir():
+              if (
+                  not path.is_file()
+                  or path.is_symlink()
+                  or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", path.name)
+              ):
+                  raise SystemExit(f"unsafe local release entry: {path}")
+              local[path.name] = {
+                  "size": path.stat().st_size,
+                  "digest": hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+
+          remote = {}
+          assets = release.get("assets")
+          if not isinstance(assets, list):
+              raise SystemExit("release has a malformed asset list")
+          asset_ids = set()
+          for asset in assets:
+              name = asset.get("name")
+              asset_id = asset.get("id")
+              digest = str(asset.get("digest", ""))
+              if (
+                  not isinstance(name, str)
+                  or name not in local
+                  or name in remote
+                  or type(asset_id) is not int
+                  or asset_id <= 0
+                  or asset_id in asset_ids
+                  or asset.get("url")
+                  != f"https://api.github.com/repos/{os.environ['REPOSITORY']}/releases/assets/{asset_id}"
+                  or asset.get("state") != "uploaded"
+                  or type(asset.get("size")) is not int
+                  or asset.get("size") < 0
+                  or not digest.startswith("sha256:")
+              ):
+                  raise SystemExit(f"release has an invalid uploaded asset: {name!r}")
+              asset_ids.add(asset_id)
+              remote[name] = {
+                  "size": asset.get("size"),
+                  "digest": digest.removeprefix("sha256:").lower(),
+              }
+          if local != remote:
+              raise SystemExit(
+                  f"release asset digest/size mismatch: local={local!r}, remote={remote!r}"
+              )
+          PY
+          }
+
+          verify_remote_assets() {
+            local release_endpoint=$1
+            local expected_release_id=$2
+            local expected_state=$3
+            local expected_body=$4
+            release_api "$release_endpoint" >"${RUNNER_TEMP}/release.json"
+            verify_release_file "${RUNNER_TEMP}/release.json" \
+              "$expected_release_id" "$expected_state" "$expected_body"
+          }
+
+          resolve_release_endpoint() {
+            local release_list="${RUNNER_TEMP}/release-list.json"
+            release_api --paginate --slurp \
+              "repos/${REPOSITORY}/releases?per_page=100" >"$release_list"
+            RELEASE_LIST=$release_list /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          path = pathlib.Path(os.environ["RELEASE_LIST"])
+          if path.stat().st_size > 64 * 1024 * 1024:
+              raise SystemExit("GitHub Release listing is unexpectedly large")
+          pages = json.loads(path.read_text(encoding="utf-8"))
+          if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+              raise SystemExit("GitHub Release listing is malformed")
+          matches = [
+              release
+              for page in pages
+              for release in page
+              if isinstance(release, dict)
+              and release.get("tag_name") == os.environ["RELEASE_TAG"]
+          ]
+          if len(matches) > 1:
+              raise SystemExit("multiple GitHub Releases unexpectedly use the release tag")
+          if not matches:
+              print("absent")
+              raise SystemExit(0)
+          release = matches[0]
+          release_id = release.get("id")
+          expected_url = (
+              f"https://api.github.com/repos/{os.environ['REPOSITORY']}/"
+              f"releases/{release_id}"
+          )
+          if (
+              type(release_id) is not int
+              or release_id <= 0
+              or release.get("url") != expected_url
+          ):
+              raise SystemExit("GitHub Release listing returned an invalid identity")
+          print(f"repos/{os.environ['REPOSITORY']}/releases/{release_id}")
+          PY
+          }
+
+          validate_resumable_draft() {
+            local missing_assets_file=$1
+            local starter_assets_file=$2
+            local expected_release_id=$3
+            local expected_body=$4
+            EXPECTED_RELEASE_BODY=$expected_body \
+              EXPECTED_RELEASE_ID=$expected_release_id \
+              MISSING_ASSETS_FILE=$missing_assets_file \
+              STARTER_ASSETS_FILE=$starter_assets_file \
+              /usr/bin/python3 -I - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from pipeline_lib import validate_github_release_identity
+
+          dist = pathlib.Path("dist")
+          release_path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "release.json"
+          release = json.loads(release_path.read_text(encoding="utf-8"))
+          validate_github_release_identity(
+              release,
+              repository=os.environ["REPOSITORY"],
+              release_id=int(os.environ["EXPECTED_RELEASE_ID"]),
+              tag=os.environ["RELEASE_TAG"],
+              target_commitish="main",
+              title=f"FFmpeg {os.environ['RELEASE_VERSION']} for Motrix",
+              body=os.environ["EXPECTED_RELEASE_BODY"],
+              state="draft",
+          )
+
+          local = {}
+          for path in dist.iterdir():
+              if (
+                  not path.is_file()
+                  or path.is_symlink()
+                  or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", path.name)
+              ):
+                  raise SystemExit(f"unsafe local release entry: {path}")
+              local[path.name] = {
+                  "size": path.stat().st_size,
+                  "digest": hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+
+          remote = {}
+          starter_names = set()
+          starter_ids = []
+          seen_ids = set()
+          assets = release.get("assets")
+          if not isinstance(assets, list):
+              raise SystemExit("existing draft has a malformed asset list")
+          for asset in assets:
+              name = asset.get("name")
+              asset_id = asset.get("id")
+              digest = str(asset.get("digest", ""))
+              if (
+                  not isinstance(name, str)
+                  or name in remote
+                  or name in starter_names
+                  or name not in local
+                  or type(asset_id) is not int
+                  or asset_id <= 0
+                  or asset_id in seen_ids
+                  or asset.get("url")
+                  != f"https://api.github.com/repos/{os.environ['REPOSITORY']}/releases/assets/{asset_id}"
+              ):
+                  raise SystemExit(f"existing draft has an unexpected asset: {name!r}")
+              seen_ids.add(asset_id)
+              if asset.get("state") == "uploaded" and digest.startswith("sha256:"):
+                  if type(asset.get("size")) is not int or asset.get("size") < 0:
+                      raise SystemExit(
+                          f"existing draft has an invalid asset size: {name!r}"
+                      )
+                  remote[name] = {
+                      "size": asset.get("size"),
+                      "digest": digest.removeprefix("sha256:").lower(),
+                  }
+                  if remote[name] != local[name]:
+                      raise SystemExit(
+                          f"existing draft asset differs from the verified local asset: {name}"
+                      )
+              elif (
+                  asset.get("state") == "starter"
+                  and type(asset.get("size")) is int
+                  and asset.get("size") == 0
+                  and asset.get("digest") in (None, "")
+              ):
+                  starter_names.add(name)
+                  starter_ids.append(asset_id)
+              else:
+                  raise SystemExit(f"existing draft has an invalid asset state: {name!r}")
+
+          missing = sorted(set(local) - set(remote))
+          output = pathlib.Path(os.environ["MISSING_ASSETS_FILE"])
+          with output.open("x", encoding="utf-8", newline="\n") as handle:
+              for name in missing:
+                  handle.write(f"dist/{name}\n")
+          starter_output = pathlib.Path(os.environ["STARTER_ASSETS_FILE"])
+          with starter_output.open("x", encoding="utf-8", newline="\n") as handle:
+              for asset_id in sorted(starter_ids):
+                  handle.write(f"{asset_id}\n")
+          PY
+          }
+
+          verify_remote_tag
+          # Markdown backticks in the format string are intentionally literal.
+          # shellcheck disable=SC2016
+          printf -v release_body '%s\n\n%s\n\nRelease tag: `%s`\nRelease commit: `%s`' \
+            "Motrix static FFmpeg ${RELEASE_VERSION}" \
+            'These files are downloaded separately and are not bundled with Motrix. Verify SHA256SUMS, GitHub attestations, and platform signatures before use.' \
+            "$RELEASE_TAG" "$EVENT_COMMIT"
+          release_lookup=$(resolve_release_endpoint)
+          if [[ "$release_lookup" == absent ]]; then
+            gh release create "$RELEASE_TAG" \
+              --draft \
+              --verify-tag \
+              --notes "$release_body" \
+              --title "FFmpeg ${RELEASE_VERSION} for Motrix"
+            release_lookup=$(resolve_release_endpoint)
+            [[ "$release_lookup" != absent ]] || {
+              echo "created draft Release could not be resolved by numeric ID" >&2
+              exit 1
+            }
+          fi
+          release_endpoint=$release_lookup
+          [[ "$release_endpoint" =~ ^repos/${REPOSITORY}/releases/[1-9][0-9]*$ ]]
+          release_id=${release_endpoint##*/}
+          missing_assets_file="${RUNNER_TEMP}/missing-release-assets.txt"
+          starter_assets_file="${RUNNER_TEMP}/starter-release-assets.txt"
+          release_api "$release_endpoint" >"${RUNNER_TEMP}/release.json"
+          release_state=$(/usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          release = json.loads(
+              (pathlib.Path(os.environ["RUNNER_TEMP"]) / "release.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if release.get("draft") is True and release.get("immutable") is False:
+              print("draft")
+          elif release.get("draft") is False and release.get("immutable") is True:
+              print("published")
+          else:
+              raise SystemExit("existing Release is neither a mutable draft nor immutable")
+          PY
+          )
+          if [[ "$release_state" == published ]]; then
+            verify_release_file "${RUNNER_TEMP}/release.json" \
+              "$release_id" published "$release_body"
+            verify_remote_tag
+            release_api "repos/${REPOSITORY}/releases/latest" \
+              >"${RUNNER_TEMP}/latest-release.json"
+            verify_release_file "${RUNNER_TEMP}/latest-release.json" \
+              "$release_id" published "$release_body"
+            exit 0
+          fi
+          validate_resumable_draft \
+            "$missing_assets_file" "$starter_assets_file" "$release_id" "$release_body"
+          mapfile -t starter_asset_ids <"$starter_assets_file"
+          if ((${#starter_asset_ids[@]} > 0)); then
+            for asset_id in "${starter_asset_ids[@]}"; do
+              [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
+              release_api --method DELETE \
+                "repos/${REPOSITORY}/releases/assets/${asset_id}"
+            done
+            missing_assets_file="${RUNNER_TEMP}/post-cleanup-missing-release-assets.txt"
+            starter_assets_file="${RUNNER_TEMP}/post-cleanup-starter-release-assets.txt"
+            release_api "$release_endpoint" >"${RUNNER_TEMP}/release.json"
+            validate_resumable_draft \
+              "$missing_assets_file" "$starter_assets_file" "$release_id" "$release_body"
+            [[ ! -s "$starter_assets_file" ]] || {
+              echo "starter assets remained after exact-ID cleanup" >&2
+              exit 1
+            }
+          fi
+          mapfile -t missing_assets <"$missing_assets_file"
+          upload_endpoint="https://uploads.github.com/repos/${REPOSITORY}/releases/${release_id}/assets"
+          for asset_path in "${missing_assets[@]}"; do
+            [[ -f "$asset_path" && ! -L "$asset_path" && "$asset_path" == dist/* ]]
+            asset_name=${asset_path#dist/}
+            release_api --method POST "$upload_endpoint" \
+              -H 'Content-Type: application/octet-stream' \
+              -f "name=$asset_name" \
+              --input "$asset_path" \
+              >"${RUNNER_TEMP}/uploaded-release-asset.json"
+          done
+
+          # Repeat the tag-object, target-commit, signature, and tagger binding
+          # immediately before crossing the draft-to-public boundary.
+          verify_remote_tag
+          verify_remote_assets \
+            "$release_endpoint" "$release_id" draft "$release_body"
+          release_api --method PATCH "$release_endpoint" \
+            -f "tag_name=$RELEASE_TAG" \
+            -f "name=FFmpeg ${RELEASE_VERSION} for Motrix" \
+            -f "body=$release_body" \
+            -f make_latest=true \
+            -F draft=false \
+            -F prerelease=false \
+            >"${RUNNER_TEMP}/published-release.json"
+          verify_release_file "${RUNNER_TEMP}/published-release.json" \
+            "$release_id" publishing "$release_body"
+
+          immutable=false
+          for ((_attempt = 1; _attempt <= 30; _attempt += 1)); do
+            release_api "$release_endpoint" >"${RUNNER_TEMP}/release.json"
+            if /usr/bin/python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          release = json.loads(
+              (pathlib.Path(os.environ["RUNNER_TEMP"]) / "release.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          raise SystemExit(0 if release.get("immutable") is True else 1)
+          PY
+            then
+              immutable=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "$immutable" == true ]] || {
+            echo "published release did not become immutable" >&2
+            exit 1
+          }
+          verify_remote_tag
+          verify_remote_assets \
+            "$release_endpoint" "$release_id" published "$release_body"
+          release_api "repos/${REPOSITORY}/releases/latest" \
+            >"${RUNNER_TEMP}/latest-release.json"
+          verify_release_file "${RUNNER_TEMP}/latest-release.json" \
+            "$release_id" published "$release_body"
+
+  sign-windows:
+    name: Authenticode sign ${{ matrix.target }}
+    if: needs.prepare-sources.outputs.formal-release == 'true'
+    needs:
+      - prepare-sources
+      - resolve-signing-inputs
+      - rebuild-signing-inputs
+      - resolve-rebuild-inputs
+      - windows-presign-static-approval
+      - windows-presign-native-approval
+      - finalize-signing-grants
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            runner: windows-2025
+            signtool_arch: x64
+            input_id: ${{ needs.resolve-signing-inputs.outputs.win32_x64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.win32_x64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.win32_x64_digest }}
+            static_approval_id: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_x64_approval_id }}
+            static_approval_digest: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_x64_approval_digest }}
+            static_grant_id: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_x64_grant_id }}
+            static_grant_digest: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_x64_grant_digest }}
+            native_approval_id: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_x64_approval_id }}
+            native_approval_digest: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_x64_approval_digest }}
+            native_grant_id: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_x64_grant_id }}
+            native_grant_digest: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_x64_grant_digest }}
+          - target: win32-arm64
+            runner: windows-11-vs2026-arm
+            signtool_arch: arm64
+            input_id: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_id }}
+            input_digest: ${{ needs.resolve-signing-inputs.outputs.win32_arm64_digest }}
+            rebuild_id: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_id }}
+            rebuild_digest: ${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_digest }}
+            static_approval_id: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_arm64_approval_id }}
+            static_approval_digest: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_arm64_approval_digest }}
+            static_grant_id: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_arm64_grant_id }}
+            static_grant_digest: ${{ needs.finalize-signing-grants.outputs.windows_static_win32_arm64_grant_digest }}
+            native_approval_id: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_arm64_approval_id }}
+            native_approval_digest: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_arm64_approval_digest }}
+            native_grant_id: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_arm64_grant_id }}
+            native_grant_digest: ${{ needs.finalize-signing-grants.outputs.windows_native_win32_arm64_grant_digest }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out protected signing control code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download bound unsigned Windows payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.input_id }}
+          path: build/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent clean Windows rebuild reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.rebuild_id }}
+          path: build/rebuild/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent static PE approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.static_approval_id }}
+          path: build/static-approval/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download independent native Windows approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.native_approval_id }}
+          path: build/native-approval/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download exact final static PE signing grant
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.static_grant_id }}
+          path: build/static-grant/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Download exact final native Windows signing grant
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ matrix.native_grant_id }}
+          path: build/native-grant/${{ matrix.target }}
+          digest-mismatch: error
+
+      - name: Revalidate every artifact identity against the run API
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          INPUT_ID: ${{ matrix.input_id }}
+          NATIVE_APPROVAL_DIGEST: ${{ matrix.native_approval_digest }}
+          NATIVE_APPROVAL_ID: ${{ matrix.native_approval_id }}
+          NATIVE_GRANT_DIGEST: ${{ matrix.native_grant_digest }}
+          NATIVE_GRANT_ID: ${{ matrix.native_grant_id }}
+          REBUILD_DIGEST: ${{ matrix.rebuild_digest }}
+          REBUILD_ID: ${{ matrix.rebuild_id }}
+          REPOSITORY: ${{ github.repository }}
+          STATIC_APPROVAL_DIGEST: ${{ matrix.static_approval_digest }}
+          STATIC_APPROVAL_ID: ${{ matrix.static_approval_id }}
+          STATIC_GRANT_DIGEST: ${{ matrix.static_grant_digest }}
+          STATIC_GRANT_ID: ${{ matrix.static_grant_id }}
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $bindings = @(
+            @{
+              Name = "signing-input-$($env:TARGET)"
+              Id = $env:INPUT_ID
+              Digest = $env:INPUT_DIGEST
+            },
+            @{
+              Name = "independent-rebuild-$($env:TARGET)"
+              Id = $env:REBUILD_ID
+              Digest = $env:REBUILD_DIGEST
+            },
+            @{
+              Name = "presign-static-approval-$($env:TARGET)"
+              Id = $env:STATIC_APPROVAL_ID
+              Digest = $env:STATIC_APPROVAL_DIGEST
+            },
+            @{
+              Name = "presign-native-approval-$($env:TARGET)"
+              Id = $env:NATIVE_APPROVAL_ID
+              Digest = $env:NATIVE_APPROVAL_DIGEST
+            },
+            @{
+              Name = "final-signing-grant-windows-static-$($env:TARGET)"
+              Id = $env:STATIC_GRANT_ID
+              Digest = $env:STATIC_GRANT_DIGEST
+            },
+            @{
+              Name = "final-signing-grant-windows-native-$($env:TARGET)"
+              Id = $env:NATIVE_GRANT_ID
+              Digest = $env:NATIVE_GRANT_DIGEST
+            }
+          )
+          foreach ($binding in $bindings) {
+            if ($binding.Id -notmatch '^[1-9][0-9]*$' -or
+                $binding.Digest -notmatch '^[0-9a-f]{64}$') {
+              throw "Invalid artifact binding for $($binding.Name)"
+            }
+            $artifactJson = (& gh api `
+              "repos/$($env:REPOSITORY)/actions/artifacts/$($binding.Id)" |
+              Out-String)
+            if ($LASTEXITCODE -ne 0) {
+              throw "Artifact API lookup failed for $($binding.Name)"
+            }
+            $artifact = $artifactJson | ConvertFrom-Json
+            $apiDigest = ([string] $artifact.digest).ToLowerInvariant() -replace '^sha256:', ''
+            if ([long] $artifact.id -ne [long] $binding.Id -or
+                [string] $artifact.name -cne [string] $binding.Name -or
+                [bool] $artifact.expired -ne $false -or
+                $apiDigest -cne [string] $binding.Digest -or
+                [long] $artifact.workflow_run.id -ne [long] $env:GITHUB_RUN_ID -or
+                [string] $artifact.workflow_run.head_sha -cne $env:EXPECTED_HEAD_SHA) {
+              throw "Artifact API binding mismatch for $($binding.Name)"
+            }
+          }
+
+      - name: Recompute both approvals and final grants before exposing signing credentials
+        env:
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          INPUT_ID: ${{ matrix.input_id }}
+          NATIVE_APPROVAL_DIGEST: ${{ matrix.native_approval_digest }}
+          NATIVE_APPROVAL_ID: ${{ matrix.native_approval_id }}
+          REBUILD_DIGEST: ${{ matrix.rebuild_digest }}
+          REBUILD_ID: ${{ matrix.rebuild_id }}
+          STATIC_APPROVAL_DIGEST: ${{ matrix.static_approval_digest }}
+          STATIC_APPROVAL_ID: ${{ matrix.static_approval_id }}
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          foreach ($kind in @('static', 'native')) {
+            $approval = "build/$kind-approval/$($env:TARGET)/$($env:TARGET).json"
+            & python -I scripts/validate_signing_input.py `
+              --target $env:TARGET `
+              --input-dir "build/$($env:TARGET)" `
+              --rebuild-dir "build/rebuild/$($env:TARGET)" `
+              --artifact-id $env:INPUT_ID `
+              --artifact-digest $env:INPUT_DIGEST `
+              --rebuild-artifact-id $env:REBUILD_ID `
+              --rebuild-artifact-digest $env:REBUILD_DIGEST `
+              --control-sha $env:GITHUB_SHA `
+              --run-id $env:GITHUB_RUN_ID `
+              --verify-approval $approval
+            if ($LASTEXITCODE -ne 0) {
+              throw "$kind pre-sign approval does not bind the exact candidate"
+            }
+            if ($kind -eq 'static') {
+              $approvalArtifactId = $env:STATIC_APPROVAL_ID
+              $approvalArtifactDigest = $env:STATIC_APPROVAL_DIGEST
+            } else {
+              $approvalArtifactId = $env:NATIVE_APPROVAL_ID
+              $approvalArtifactDigest = $env:NATIVE_APPROVAL_DIGEST
+            }
+            & python -I scripts/finalize_signing_grant.py `
+              --approval-kind "windows-$kind" `
+              --target $env:TARGET `
+              --approval-file $approval `
+              --approval-artifact-id $approvalArtifactId `
+              --approval-artifact-digest $approvalArtifactDigest `
+              --candidate-artifact-id $env:INPUT_ID `
+              --candidate-artifact-digest $env:INPUT_DIGEST `
+              --rebuild-artifact-id $env:REBUILD_ID `
+              --rebuild-artifact-digest $env:REBUILD_DIGEST `
+              --control-sha $env:GITHUB_SHA `
+              --run-id $env:GITHUB_RUN_ID `
+              --verify-grant "build/$kind-grant/$($env:TARGET)/windows-$kind-$($env:TARGET).json"
+            if ($LASTEXITCODE -ne 0) {
+              throw "$kind final signing grant does not authorize the exact candidate"
+            }
+          }
+          foreach ($binary in @('ffmpeg.exe', 'ffprobe.exe')) {
+            & python -I scripts/verify_authenticode_delta.py --unsigned-only `
+              "build/$($env:TARGET)/payload/$binary"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Pre-sign candidate is not structurally unsigned: $binary"
+            }
+          }
+
+      - name: Package unchanged verified Windows binaries
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          python scripts/package-artifact.py `
+            --target $env:TARGET `
+            --payload-dir "build/$($env:TARGET)/payload" `
+            --build-info "build/$($env:TARGET)/build-info.json" `
+            --output-dir "build/packages/$($env:TARGET)"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }
+
+      - name: Upload signed Windows release candidate
+        id: upload-release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.target }}
+          path: build/packages/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 36
+          compression-level: 0
+
+      - name: Record signed candidate artifact binding
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload-release.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload-release.outputs.artifact-id }}
+          ARTIFACT_NAME: release-${{ matrix.target }}
+          HEAD_SHA: ${{ github.sha }}
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:ARTIFACT_ID -notmatch '^[1-9][0-9]*$' -or
+              $env:ARTIFACT_DIGEST -notmatch '^[0-9a-f]{64}$') {
+            throw 'upload-artifact returned an invalid artifact identity'
+          }
+          $binding = [ordered]@{
+            schemaVersion = 1
+            target = $env:TARGET
+            artifactName = $env:ARTIFACT_NAME
+            artifactId = [long]$env:ARTIFACT_ID
+            artifactDigest = $env:ARTIFACT_DIGEST
+            runId = [long]$env:GITHUB_RUN_ID
+            headSha = $env:HEAD_SHA
+          }
+          $directory = Join-Path $env:GITHUB_WORKSPACE 'build/release-binding'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          $binding | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath (Join-Path $directory "$($env:TARGET).json") -Encoding utf8
+
+      - name: Upload signed candidate binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-binding-${{ matrix.target }}
+          path: build/release-binding/${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 36
