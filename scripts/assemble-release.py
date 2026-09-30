@@ -120,6 +120,7 @@ BUILD_PIPELINE_FILES = (
     "scripts/verify_macho_codesign_delta.py",
     "scripts/verify-binary.sh",
     "scripts/validate_action_review.py",
+    "scripts/validate_release_tag.py",
     "security/action-risk-review.json",
     "security/action-dependency-audit.json",
 )
@@ -1952,7 +1953,6 @@ def main() -> None:
     parser.add_argument("--event-sha")
     parser.add_argument("--control-sha")
     parser.add_argument("--tag-object-sha")
-    parser.add_argument("--release-tag-signer-fingerprint")
     parser.add_argument("--expected-macos-team-id")
     parser.add_argument("--expected-macos-cert-sha256")
     parser.add_argument("--expected-windows-subject")
@@ -1998,20 +1998,12 @@ def main() -> None:
             r"[0-9a-f]{40}|[0-9a-f]{64}", args.tag_object_sha
         ):
             raise SystemExit("formal release requires a lowercase tag object SHA")
-        if not isinstance(args.release_tag_signer_fingerprint, str) or not re.fullmatch(
-            r"[0-9A-F]{40}|[0-9A-F]{64}",
-            args.release_tag_signer_fingerprint,
-        ):
-            raise SystemExit(
-                "formal release requires an uppercase OpenPGP signer fingerprint"
-            )
     elif any(
         value is not None
         for value in (
             args.event_sha,
             args.control_sha,
             args.tag_object_sha,
-            args.release_tag_signer_fingerprint,
         )
     ):
         raise SystemExit("formal release identity arguments require --release-tag")
@@ -2084,7 +2076,6 @@ def main() -> None:
         "releaseCommit": args.event_sha,
         "controlCommit": args.control_sha,
         "releaseTagObjectSha": args.tag_object_sha,
-        "releaseTagSignerFingerprint": args.release_tag_signer_fingerprint,
         "formalRelease": formal_release,
         "ffmpegVersion": sources["FFMPEG_VERSION"],
         "profile": "motrix-full-gpl",
