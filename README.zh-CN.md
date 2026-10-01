@@ -65,6 +65,9 @@ Get-FileHash .\ffmpeg-<FFmpeg-版本>-motrix.<构建号>-win32-<架构>.zip -Alg
 不能证明发布者身份。Motrix 内置公钥用于校验发布清单的 Ed25519 项目签名。若要
 验证项目签名、Release、attestation、manifest、tag 及 macOS 签名，请按照 [SECURITY.md](SECURITY.md#verify-a-download) 的完整步骤操作。
 
+独立发布的 [Motrix FFmpeg 签名公钥页面](https://motrix.app/zh/security/ffmpeg/)
+提供公钥、key ID 和轮换记录。不要因为替换公钥与下载包一起提供，就直接信任它。
+
 任何检查失败时，**都不要安装或运行该文件**。平台签名验证需要先通过共同检查，再按
 `SECURITY.md` 的安全流程，只把 `ffmpeg` 与 `ffprobe` 解压到新建的临时目录。请重新
 从本仓库带 tag 的 Release 下载，并报告潜在安全问题。切勿绕过 Gatekeeper、

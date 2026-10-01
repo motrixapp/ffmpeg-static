@@ -336,6 +336,10 @@ plan/visibility change, or credential rotation.
   Releases. Link it from an official Motrix site or application, record its
   exact canonical URL in `SECURITY.md`, and retain append-only identity history.
   Until this independent trust root is available, keep the first release blocked.
+  The initial key is now published at `https://motrix.app/security/ffmpeg/`
+  (Chinese: `https://motrix.app/zh/security/ffmpeg/`). Re-check the live PEM and
+  its SPKI-DER key ID before release; website publication is not approval of
+  the blocked Action dependency review.
   Consumers authenticate the manifest with that root before using its Apple
   identity fields, then compare them against actual code signatures. This
   intentionally drops the separate out-of-band Apple identity trust anchor;

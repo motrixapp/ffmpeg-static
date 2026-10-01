@@ -37,13 +37,20 @@ publishing details.
 
 ## Current release engineering hold
 
-As of 2026-09-30, official immutable GitHub Actions still have vulnerable
+As of 2026-10-01, official immutable GitHub Actions still have vulnerable
 runtime npm lock entries. Updating an Action tag is not evidence that its
 transitive dependencies are all fixed. The conservative, development-dependency
 excluded inventory is recorded in
 [`security/action-dependency-audit.json`](security/action-dependency-audit.json).
 It is a package inventory, not a claim that every advisory is exploitable in
 this workflow or included in the Action's executed bundle.
+
+The refreshed [audit run](https://github.com/motrixapp/ffmpeg-static/actions/runs/36794988412)
+inventories 265 runtime package versions and 42 distinct advisories: 1 Critical,
+18 High, 19 Medium, and 4 Low. Its complete report SHA-256 is
+`5a7e3a75060254ad27f1036b74a8f490d05ece6c9f0a72c9157f09cff3dad12e`.
+The findings are unchanged from the preceding scan. Publishing the public key
+does not approve these risks or lift the hold.
 
 Formal releases are currently **blocked** by
 [`security/action-risk-review.json`](security/action-risk-review.json).
@@ -66,12 +73,15 @@ Download only from this repository's immutable GitHub Releases. For an explicit
 tag and local archive, use Bash, a current GitHub CLI, and `jq` to verify all three
 trust layers before extraction: the pinned Ed25519 manifest signature, immutable
 Release assets, and exact workflow/commit provenance. Obtain the Ed25519
-public key/key ID from an independently
-deployed Motrix-controlled HTTPS trust page outside this repository and its
-Releases. The first public Release remains blocked until that page is live,
-linked from an official Motrix site or application, and its canonical URL
-replaces this notice. Never use a key downloaded alongside an archive as its
-own trust anchor. Replace the example tag/asset below with the exact Release
+public key/key ID from the independently deployed
+[Motrix-controlled HTTPS trust page](https://motrix.app/security/ffmpeg/)
+outside this repository and its Releases. Its exact canonical URL is
+`https://motrix.app/security/ffmpeg/`; a [Chinese version](https://motrix.app/zh/security/ffmpeg/)
+publishes the same key. The official site footer and getting-started manual
+link to this page. Before the first public Release, confirm it is still live
+and matches `keys/manifest-ed25519.pub`; the Action risk review and every other
+release gate remain mandatory. Never use a key downloaded alongside an archive
+as its own trust anchor. Replace the example tag/asset below with the exact Release
 and local archive. Start in a fresh directory containing the archive but no
 pre-existing manifest, signature, checksums, or notarization log.
 
@@ -462,8 +472,9 @@ repository and its Releases, linked from an official Motrix site or
 application, so download verification has an independent trust root. Preserve
 an append-only identity history with effective Release ranges when the Ed25519 root
 rotates. Apple Team ID/certificate pins remain internal release policy; no
-separate public Apple identity announcement is required. The exact deployed URL must replace the first-release notice in the
-verification section before publication. The catch-all CODEOWNERS rule names the actual release maintainer, `agalwood`.
+separate public Apple identity announcement is required. The exact deployed URL
+is recorded in the verification section above; re-check its public availability
+and key bytes before publication. The catch-all CODEOWNERS rule names the actual release maintainer, `agalwood`.
 The GitHub account and its recovery/MFA credentials are part of the trust boundary;
 a single compromised maintainer account cannot be mitigated by a second-person
 approval in this profile. Treat any missing or weakened control as a
