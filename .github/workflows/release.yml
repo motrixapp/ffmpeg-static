@@ -1338,6 +1338,20 @@ jobs:
             throw 'exact Windows signing-input validation failed'
           }
 
+      - name: Package exact unsigned Windows payload before approval
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          & python -I scripts/package-artifact.py `
+            --target $env:TARGET `
+            --payload "build/$($env:TARGET)/payload" `
+            --build-info "build/$($env:TARGET)/build-info.json" `
+            --output-dir "build/packages/$($env:TARGET)"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }
+
       - name: Upload native Windows pre-sign approval
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

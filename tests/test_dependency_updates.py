@@ -44,7 +44,7 @@ class DependencyUpdateTests(unittest.TestCase):
         reviews.validate(self.approved_review(), self.references, self.today)
         reviews.validate_scope(self.review, ROOT / ".github/workflows", ROOT / "sources.env",
                                self.review["releaseTag"], ROOT / "security/action-reachability-review.json")
-        self.assertEqual(self.review["releaseTag"], "v9.0.2-motrix.4")
+        self.assertEqual(self.review["releaseTag"], "v9.0.2-motrix.5")
         blocked = copy.deepcopy(self.review)
         blocked["status"] = "blocked"
         with self.assertRaisesRegex(ValueError, "formal release blocked"):

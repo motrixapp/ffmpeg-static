@@ -296,6 +296,20 @@ scope record; this authorization does not cover new advisories, expiry extension
 unrelated source/Action updates, or protected-Environment approval. All nine
 exact-commit checks, independent rebuilds, signing and publication gates remain.
 
+Formal `.4` run `36840700978` passed all six candidate builds, four independent
+rebuilds, six secret-free approvals and final grants. Both Windows finalizers
+then rejected the isolated packaging entrypoint: `python -I` correctly removes
+ambient module paths, but the packaging script had not anchored its adjacent
+`pipeline_lib` helper. macOS remained at the required-reviewer gate; the run was
+cancelled without signing credentials or a Release. Preserve all four tags.
+Candidate `.5` imports helpers only from the protected script directory, executes
+every native Python CLI entrypoint under isolation, and runs the exact final
+packaging command in required Windows CI and before native pre-sign approval
+upload. Tests ensure the three command copies cannot drift. The continuing
+maintainer authorization above is freshly bound only to `.5` and its new scope,
+retaining the same 42 advisories and 2026-10-15 UTC deadline. It does not reuse
+the `.4` hashes, approve an Environment, or widen the risk acceptance.
+
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42
 inventoried advisories. It records input limitations and residual risk, including
