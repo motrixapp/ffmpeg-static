@@ -22,8 +22,8 @@ import validate_action_review as reviews  # noqa: E402
 
 class DependencyUpdateTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.today = dt.date(2026, 9, 30)
         self.review = json.loads((ROOT / "security/action-risk-review.json").read_text())
+        self.today = dt.date.fromisoformat(self.review["reviewedAt"])
         self.references = set(self.review["actionReferences"])
 
     def approved_review(self) -> dict:
@@ -42,7 +42,8 @@ class DependencyUpdateTests(unittest.TestCase):
         reviews.validate(review, self.references, self.today)
         with self.assertRaisesRegex(ValueError, "exact workflow commits"):
             reviews.validate(review, self.references | {"actions/cache@" + "a" * 40}, self.today)
-        for day in (dt.date(2026, 9, 29), dt.date(2026, 10, 15)):
+        end = dt.date.fromisoformat(review["validUntil"])
+        for day in (self.today - dt.timedelta(days=1), end + dt.timedelta(days=1)):
             with self.subTest(day=day), self.assertRaisesRegex(ValueError, "expired"):
                 reviews.validate(review, self.references, day)
 
@@ -72,7 +73,7 @@ class DependencyUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "every inventoried advisory"):
             reviews.validate_report(review, data, self.references)
         review = self.approved_review()
-        review["reviewedAt"] = "2026-10-01"
+        review["reviewedAt"] = (self.today + dt.timedelta(days=1)).isoformat()
         with self.assertRaisesRegex(ValueError, "review date"):
             reviews.validate_report(review, data, self.references)
 

@@ -545,6 +545,24 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
         )
         self.assertIn("exact deployed URL", " ".join(security.split()))
 
+    def test_deployed_trust_reference_does_not_approve_action_risks(self) -> None:
+        import hashlib
+        import json
+
+        security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+        self.assertIn("https://motrix.app/manual/ffmpeg/", security)
+        self.assertIn("https://motrix.app/zh/manual/ffmpeg/", security)
+        for name in ("README.md", "README.zh-CN.md", "CONTRIBUTING.md"):
+            self.assertRegex(
+                (ROOT / name).read_text(encoding="utf-8"),
+                r"https://motrix\.app/(?:zh/)?manual/ffmpeg/",
+            )
+        report = (ROOT / "security/action-dependency-audit.json").read_bytes()
+        review = json.loads((ROOT / "security/action-risk-review.json").read_bytes())
+        self.assertEqual(review["status"], "blocked")
+        self.assertEqual(review["reviewedBy"], "pending-maintainer-review")
+        self.assertEqual(review["auditReportSha256"], hashlib.sha256(report).hexdigest())
+
     def test_public_readmes_are_user_facing_download_guides(self) -> None:
         documents = {
             "README.md": (ROOT / "README.md").read_text(encoding="utf-8"),
