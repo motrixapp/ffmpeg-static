@@ -472,6 +472,15 @@ class PipelineTest(unittest.TestCase):
         shutil.copytree(payload, input_root / "payload")
         shutil.copyfile(build_info, input_root / "build-info.json")
         shutil.copyfile(lock, input_root / "sources.env")
+        if target.endswith("-x64"):
+            nasm = input_root / "work/nasm/bin/nasm"
+            nasm.parent.mkdir(parents=True)
+            nasm.write_bytes(b"fixture NASM build evidence\r\n\x1a\xff\0")
+            info = json.loads((input_root / "build-info.json").read_bytes())
+            info["tools"]["nasm"]["binarySha256"] = pipeline_lib.sha256_file(nasm)
+            (input_root / "build-info.json").write_text(
+                json.dumps(info, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
         if target.startswith("win32-"):
             maps = input_root / "work/link-maps"
             maps.mkdir(parents=True)
@@ -834,6 +843,70 @@ class PipelineTest(unittest.TestCase):
                 self.assertIn("pipeline_lib.minimum_os", script_text)
                 self.assertNotIn('"version":"3.7.0"', script_text)
                 self.assertNotIn('"version":"2.6.39"', script_text)
+
+    def test_protected_file_readers_preserve_windows_binary_bytes_and_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "binary"
+            data = b"MZ\r\n\x1a\xff\0\r\nlast bytes"
+            path.write_bytes(data)
+            actual_open = os.open
+            binary_flag = getattr(os, "O_BINARY", 0x8000)
+
+            def binary_open(name, flags):
+                self.assertTrue(flags & binary_flag)
+                native_flags = flags if os.name == "nt" else flags & ~binary_flag
+                return actual_open(name, native_flags)
+
+            with mock.patch.object(os, "O_BINARY", binary_flag, create=True), mock.patch.object(
+                os, "open", side_effect=binary_open
+            ):
+                for reader in (
+                    validate_signing_input._read_regular,
+                    finalize_signing_grant._read_regular,
+                ):
+                    self.assertEqual(reader(path, len(data)), data)
+                    with self.assertRaises(ValueError):
+                        reader(path, len(data) - 1)
+
+    def test_x64_presign_nasm_evidence_is_exact_bounded_and_hash_bound(self) -> None:
+        for target in ("darwin-x64", "win32-x64"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                lock, _assets = self.make_sources(base)
+                input_root = self.make_signing_input(base, target, lock)
+                rebuild_root = base / "independent-rebuild"
+                shutil.copytree(input_root, rebuild_root)
+                evidence = input_root / "work/nasm/bin/nasm"
+                kwargs = dict(
+                    target=target, input_root=input_root, rebuild_root=rebuild_root,
+                    artifact_id=1, artifact_digest="a" * 64,
+                    rebuild_artifact_id=2, rebuild_artifact_digest="b" * 64,
+                    control_sha="c" * 40, run_id=3,
+                )
+                with mock.patch.object(validate_signing_input, "ROOT", base):
+                    validate_signing_input.signing_approval(**kwargs)
+                    original = evidence.read_bytes()
+                    evidence.unlink()
+                    with self.assertRaisesRegex(ValueError, "file set mismatch"):
+                        validate_signing_input.signing_approval(**kwargs)
+                    evidence.write_bytes(b"tampered NASM")
+                    with self.assertRaisesRegex(ValueError, "NASM evidence differs"):
+                        validate_signing_input.signing_approval(**kwargs)
+                    evidence.write_bytes(original)
+                    with mock.patch.object(validate_signing_input, "MAX_INPUT_BYTES", 1):
+                        with self.assertRaisesRegex(ValueError, "total size limit"):
+                            validate_signing_input.signing_approval(**kwargs)
+                    info_path = rebuild_root / "build-info.json"
+                    info = json.loads(info_path.read_bytes())
+                    replacement = rebuild_root / "work/nasm/bin/nasm"
+                    replacement.write_bytes(b"different independently built NASM")
+                    info["tools"]["nasm"]["binarySha256"] = pipeline_lib.sha256_file(replacement)
+                    info_path.write_text(json.dumps(info), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "not byte-for-byte reproducible"):
+                        validate_signing_input.signing_approval(**kwargs)
+                self.assertNotIn(
+                    "work/nasm/bin/nasm", validate_signing_input._expected_files("win32-arm64")
+                )
 
     def test_presign_approval_binds_exact_tree_and_binary_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

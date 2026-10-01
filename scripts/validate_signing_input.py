@@ -53,7 +53,8 @@ def _read_regular(path: Path, maximum: int) -> bytes:
         raise ValueError(f"expected a non-empty regular file: {path}")
     if before.st_size > maximum:
         raise ValueError(f"file exceeds its signing-input limit: {path}")
-    flags = os.O_RDONLY
+    # CRT text mode truncates/rewrites arbitrary PE bytes on Windows.
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
@@ -110,6 +111,9 @@ def _expected_files(target: str) -> dict[str, int]:
         for program in ("ffmpeg", "ffprobe"):
             files[f"work/link-maps/{program}.map"] = MAX_EVIDENCE_BYTES
             files[f"work/link-maps/{program}.link-trace.txt"] = MAX_EVIDENCE_BYTES
+    if require_target(target)["arch"] == "x64":
+        # Read-only build evidence, never a tool to execute in signing jobs.
+        files["work/nasm/bin/nasm"] = 16 * 1024 * 1024
     return files
 
 
@@ -193,6 +197,10 @@ def _validated_snapshot(
         contents["build-info.json"], f"{context} build info", maximum=256 * 1024
     )
     validate_build_info(build_info, target, sources, configure)
+    if require_target(target)["arch"] == "x64":
+        nasm_sha = hashlib.sha256(contents["work/nasm/bin/nasm"]).hexdigest()
+        if nasm_sha != build_info["tools"]["nasm"]["binarySha256"]:
+            raise ValueError("source-built NASM evidence differs from BUILD-INFO")
     return records, contents
 
 

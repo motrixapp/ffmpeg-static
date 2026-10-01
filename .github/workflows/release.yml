@@ -527,6 +527,11 @@ jobs:
           cp -R "build/${TARGET}/payload" "$stage/payload"
           install -m 0644 "build/${TARGET}/build-info.json" "$stage/build-info.json"
           install -m 0644 sources.env "$stage/sources.env"
+          if [[ "$TARGET" == *-x64 ]]; then
+            mkdir -p "$stage/work/nasm/bin"
+            [[ -f "build/${TARGET}/work/nasm/bin/nasm" && ! -L "build/${TARGET}/work/nasm/bin/nasm" ]]
+            install -m 0644 "build/${TARGET}/work/nasm/bin/nasm" "$stage/work/nasm/bin/nasm"
+          fi
           if [[ "$PLATFORM" == win32 ]]; then
             mkdir -p "$stage/work/link-maps"
             for evidence in \
@@ -821,6 +826,11 @@ jobs:
           cp -R "build/${TARGET}/payload" "$stage/payload"
           install -m 0644 "build/${TARGET}/build-info.json" "$stage/build-info.json"
           install -m 0644 sources.env "$stage/sources.env"
+          if [[ "$TARGET" == *-x64 ]]; then
+            mkdir -p "$stage/work/nasm/bin"
+            [[ -f "build/${TARGET}/work/nasm/bin/nasm" && ! -L "build/${TARGET}/work/nasm/bin/nasm" ]]
+            install -m 0644 "build/${TARGET}/work/nasm/bin/nasm" "$stage/work/nasm/bin/nasm"
+          fi
           if [[ "$PLATFORM" == win32 ]]; then
             mkdir -p "$stage/work/link-maps"
             for evidence in \
@@ -1273,6 +1283,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Test protected binary readers on native Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & python -I -m unittest discover -s tests -p test_file_readers.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'native binary-reader regression failed' }
 
       - name: Download exact bound unsigned Windows payload
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -2437,6 +2454,8 @@ jobs:
               "payload/ffprobe",
               *(f"payload/LICENSES/{name}" for name in required_license_files(target)),
           }
+          if target == "darwin-x64":
+              expected.add("work/nasm/bin/nasm")
           if actual != expected:
               raise SystemExit("pre-signing macOS input member set is not exact")
           if (unsigned / "sources.env").read_bytes() != pathlib.Path("sources.env").read_bytes():
@@ -2448,6 +2467,10 @@ jobs:
                   raise SystemExit(f"non-binary macOS payload changed during signing: {name}")
           PY
 
+          if [[ "$TARGET" == darwin-x64 ]]; then
+            mkdir -p "build/${TARGET}/work/nasm/bin"
+            install -m 0644 "build/unsigned/${TARGET}/work/nasm/bin/nasm" "build/${TARGET}/work/nasm/bin/nasm"
+          fi
           for binary in ffmpeg ffprobe; do
             python3 -I scripts/verify_macho_codesign_delta.py \
               "build/unsigned/${TARGET}/payload/${binary}" \
@@ -2804,6 +2827,8 @@ jobs:
               for program in ("ffmpeg", "ffprobe")
               for suffix in (".map", ".link-trace.txt")
           }
+          if target == "win32-x64":
+              expected_unsigned.add("work/nasm/bin/nasm")
           if actual_unsigned != expected_unsigned:
               raise SystemExit("pre-signing payload member set is not exact")
           if (unsigned_root / "sources.env").read_bytes() != pathlib.Path("sources.env").read_bytes():
@@ -2825,6 +2850,16 @@ jobs:
           with (output_root / "build-info.json").open("xb") as handle:
               handle.write(files["BUILD-INFO.json"])
           (output_root / "build-info.json").chmod(0o644)
+          if target == "win32-x64":
+              from pipeline_lib import _read_bounded_regular_file
+              nasm_evidence = _read_bounded_regular_file(
+                  unsigned_root / "work/nasm/bin/nasm", "NASM evidence", 16 * 1024 * 1024
+              )
+              destination = output_root / "work/nasm/bin/nasm"
+              destination.parent.mkdir(parents=True, mode=0o700)
+              with destination.open("xb") as handle:
+                  handle.write(nasm_evidence)
+              destination.chmod(0o644)
           PY
 
       - name: Extract the checksum-bound inspection toolchain

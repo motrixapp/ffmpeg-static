@@ -246,7 +246,7 @@ expected_size = int(sys.argv[2])
 metadata = os.lstat(path)
 if not stat.S_ISREG(metadata.st_mode):
     raise SystemExit(f"not a regular non-symlink file: {path}")
-flags = os.O_RDONLY
+flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
 if hasattr(os, "O_CLOEXEC"):
     flags |= os.O_CLOEXEC
 if hasattr(os, "O_NOFOLLOW"):

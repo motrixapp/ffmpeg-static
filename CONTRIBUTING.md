@@ -68,6 +68,10 @@ verification on every affected target.
   target must build NASM from the same locked source, explicitly select it for
   x264/FFmpeg assembly, and record both source and
   executable hashes; package-manager or runner NASM fallbacks are forbidden.
+  Formal x64 signing inputs and independent rebuilds also carry the exact NASM
+  executable as bounded, read-only hash evidence. Verification must compare its
+  bytes and recorded digest; signing jobs must never execute it, and it is not
+  part of a user payload archive.
   NASM's exact official archive is the sole narrow exception for setgid bits on
   directories; extracted permissions are stripped and revalidated. Never
   broaden that policy to files, other special bits, or another archive.
@@ -264,6 +268,17 @@ same-target/runner-OS source-cache fallback. Build sources, toolchains,
 Action references and all 42 advisories are unchanged. This separate
 single-version exception does not confirm any protected Environment or
 claim a public Release already exists.
+Formal `.2` run `36819481774` failed closed at secret-free pre-sign checks after
+all six candidate and four independent builds completed. Candidate `.3` fixes
+Windows binary-mode reads, requires a deterministic linker ad-hoc baseline on
+both macOS architectures, and carries exact read-only x64 NASM evidence through
+verification. Neither immutable tag is replaced. The changed release tag,
+source lock and workflows require a new explicit risk decision; the prior
+single-version `.2` exception cannot authorize `.3` publication. On 2026-10-01,
+`agalwood` explicitly authorized that fully disclosed `.3` scope and all 42
+residual advisories solely for this version through 2026-10-15 UTC, conditional
+on all exact-commit CI checks and unchanged protected release gates. This
+separate recorded exception neither fixes an advisory nor confirms an Environment.
 
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42

@@ -67,7 +67,7 @@ def _read_regular(path: Path, maximum: int = MAX_DOCUMENT_BYTES) -> bytes:
         raise ValueError(f"expected a non-empty regular file: {path}")
     if before.st_size > maximum:
         raise ValueError(f"document exceeds its size limit: {path}")
-    flags = os.O_RDONLY
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
