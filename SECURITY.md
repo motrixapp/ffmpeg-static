@@ -78,9 +78,9 @@ public key/key ID from the independently deployed
 outside this repository and its Releases. Its exact canonical URL is
 `https://motrix.app/manual/ffmpeg/`; a [Chinese version](https://motrix.app/zh/manual/ffmpeg/)
 publishes the same key. Both pages belong to the official manual's installation
-section and are linked from its navigation and getting-started guide. The former
-security-page URLs redirect to these manual pages; there is no separate footer
-entry. Before the first public Release, confirm it is still live
+section and are linked from its navigation and getting-started guide, without
+a separate footer entry or legacy security-page redirects. Before the
+first public Release, confirm it is still live
 and matches `keys/manifest-ed25519.pub`; the Action risk review and every other
 release gate remain mandatory. Never use a key downloaded alongside an archive
 as its own trust anchor. Replace the example tag/asset below with the exact Release
