@@ -453,6 +453,18 @@ plan/visibility change, or credential rotation.
   Conventional ASCII spaces/tabs/CR/LF are accepted; other characters,
   noncanonical padding and raw input over 64 KiB fail closed. Provision the
   Secret privately via standard input; never paste its value into logs or chat.
+  Signing snapshots the user keychain search list before creating its isolated
+  keychain, registers that keychain ahead of the original entries, and restores
+  the exact original list before deletion on every exit. Cleanup failures fail
+  the job, even if signing completed. This follows the search-list handling in
+  [electron-builder's macOS implementation](https://github.com/electron-userland/electron-builder/blob/master/packages/app-builder-lib/src/codeSign/mac/macCodeSign.ts)
+  and Motrix's release workflow, without importing their broader application
+  entitlements, extra signing-tool permissions or bundled trust stores.
+  `--keychain` and the unique Developer ID identity plus internal certificate
+  pins remain mandatory; no default keychain or trust settings are changed.
+  Public fake-command tests exercise the actual production script on native
+  macOS CI and secret-free approval runners. They prove lifecycle/error handling,
+  not an actual Developer ID signature; only the protected formal job tests that.
 - [ ] Review GitHub Actions policy and every `uses:` reference. Permit only the
   intended actions, keep full commit-SHA pins, disable write tokens by default,
   and retain OIDC/attestation permissions only on the attestation job. Confirm

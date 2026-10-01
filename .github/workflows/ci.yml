@@ -133,6 +133,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           /usr/bin/python3 -I -m unittest discover -s tests -p test_macos_certificate_encoding.py -v
+          /usr/bin/python3 -I -m unittest discover -s tests -p test_macos_keychain_lifecycle.py -v
 
       - name: Fetch, authenticate, build, and verify locked inputs
         env:
