@@ -495,6 +495,12 @@ plan/visibility change, or credential rotation.
 
 ## Maintainer release checklist
 
+`BUILD-INFO.json` in an archive must retain the exact approved `build-info.json`
+bytes after complete bounded schema/provenance validation. Do not re-serialize
+that record, change dependency order, or replace final byte comparison with
+semantic JSON equality. Canonical metadata/SBOM descriptions are separate from
+the bound original build record.
+
 1. Review `sources.env`, its diff history, upstream signatures, checksums, and
    source/toolchain BOM, minimum-OS declarations, and the derived
    `v<FFMPEG_VERSION>-motrix.<BUILD_REVISION>` tag. Confirm the intended current

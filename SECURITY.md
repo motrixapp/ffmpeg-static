@@ -156,6 +156,27 @@ default keychain, trust store, Action commit, source archive or toolchain change
 The continuing authorization is freshly bound only to `.7`, with the same 42
 advisories and 2026-10-15 UTC deadline; no prior Environment approval is reused.
 All six earlier annotated tags remain immutable.
+Formal `.7` run `36871808723` passed both genuine Developer ID signing and
+exact-ZIP notarization jobs following fresh human Environment confirmation.
+The isolated keychain lifecycle correction worked on both macOS architectures;
+no identity lookup or notarization failure remains in that run. Both native
+Windows final smoke tests also passed. All four macOS/Windows final structural
+checks then failed closed at the exact `BUILD-INFO` byte comparison: the packager
+re-serialized the validated record, changing formatting and potentially
+dependency order instead of preserving the approved bytes. Assembly, Ed25519 signing and
+publication were skipped; no public Release exists. Candidate `.8` retains one
+bounded, binary, race-checked read for both complete schema/provenance validation
+and archive content. Normalized dependency descriptions remain separate metadata;
+the archived build record is no longer rewritten. Exact final byte comparisons
+are unchanged, and malformed/duplicate/unknown records still fail validation.
+Six-target public fixtures run the real isolated packaging CLI on noncanonical
+valid JSON with CRLF, whitespace and reversed dependency order and prove that
+the complete original bytes survive ZIP/TAR packaging without modifying input.
+Signing/notarization, keychain isolation, all workflows, official Action commits,
+source archives and toolchains are unchanged. The continuing authorization is
+freshly bound only to `.8`, with the same 42 advisories and 2026-10-15 UTC deadline;
+new protected-Environment confirmations are required, and all seven earlier
+annotated tags and their run-specific signing evidence remain immutable.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -212,8 +233,8 @@ PGP verification is unchanged.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.2-motrix.7
-asset=ffmpeg-9.0.2-motrix.7-linux-x64.tar.gz
+tag=v9.0.2-motrix.8
+asset=ffmpeg-9.0.2-motrix.8-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS
