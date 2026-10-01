@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -29,6 +30,39 @@ notices = load_reader_module("generate-third-party-notices.py")
 
 
 class BinaryFileReaderTests(unittest.TestCase):
+    def test_windows_notice_stat_semantics_preserve_all_mutation_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "fixture"
+            data = b"locked source\r\n\x1a\0bytes"
+            path.write_bytes(data)
+            metadata = path.lstat()
+            fields = {
+                name: getattr(metadata, name)
+                for name in ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns")
+            }
+            expected = SimpleNamespace(**fields, st_ctime_ns=10, st_birthtime_ns=10)
+            opened = SimpleNamespace(**fields, st_ctime_ns=20, st_birthtime_ns=10)
+            with mock.patch.object(os, "name", "nt"), mock.patch.object(
+                os, "fstat", side_effect=[opened, opened]
+            ):
+                self.assertEqual(notices._read_regular_file(path, expected), data)
+
+            for field in ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_birthtime_ns"):
+                changed = SimpleNamespace(**vars(opened))
+                setattr(changed, field, getattr(changed, field) + 1)
+                with self.subTest(opening=field), mock.patch.object(os, "name", "nt"), mock.patch.object(
+                    os, "fstat", return_value=changed
+                ), self.assertRaisesRegex(notices.NoticeError, "while being opened"):
+                    notices._read_regular_file(path, expected)
+
+            for field in ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns"):
+                changed = SimpleNamespace(**vars(opened))
+                setattr(changed, field, getattr(changed, field) + 1)
+                with self.subTest(reading=field), mock.patch.object(os, "name", "nt"), mock.patch.object(
+                    os, "fstat", side_effect=[opened, changed]
+                ), self.assertRaisesRegex(notices.NoticeError, "while being read"):
+                    notices._read_regular_file(path, expected)
+
     def readers(self, path: Path, data: bytes):
         yield signing._read_regular(path, len(data))
         yield grant._read_regular(path, len(data))

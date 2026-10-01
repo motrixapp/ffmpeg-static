@@ -278,7 +278,18 @@ def _read_regular_file(path: Path, expected: os.stat_result) -> bytes:
             expected.st_mtime_ns,
             expected.st_ctime_ns,
         )
-        if identity != expected_identity or not stat.S_ISREG(opened.st_mode):
+        opening_identity = identity
+        if os.name == "nt":
+            # CPython #157671: path stat reports creation time while fstat may
+            # report change time. Compare the explicit birth time across APIs;
+            # retain the descriptor's full ctime for the post-read race check.
+            opening_identity = identity[:-1] + (
+                getattr(opened, "st_birthtime_ns", opened.st_ctime_ns),
+            )
+            expected_identity = expected_identity[:-1] + (
+                getattr(expected, "st_birthtime_ns", expected.st_ctime_ns),
+            )
+        if opening_identity != expected_identity or not stat.S_ISREG(opened.st_mode):
             raise NoticeError(f"source file changed while being opened: {path}")
         chunks: list[bytes] = []
         remaining = opened.st_size
