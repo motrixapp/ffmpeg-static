@@ -113,11 +113,16 @@ jobs:
 
       - name: Require a current review of Action dependency risks before formal release
         if: ${{ steps.release.outputs.formal_release == 'true' }}
+        env:
+          REVIEW_RELEASE_TAG: ${{ steps.release.outputs.release-tag }}
         run: |
           /usr/bin/python3 -I scripts/validate_action_review.py \
             --review security/action-risk-review.json \
             --audit-report security/action-dependency-audit.json \
-            --workflows .github/workflows
+            --workflows .github/workflows \
+            --sources release-subject/sources.env \
+            --release-tag "$REVIEW_RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
 
       - name: Bind requested remote tag to the subject commit
         id: trust
@@ -278,6 +283,7 @@ jobs:
           install -m 0644 patches/musl-CVE-2026-6042.patch "$source_dir/patches/"
           install -m 0644 patches/musl-CVE-2026-40200.patch "$source_dir/patches/"
           install -m 0644 security/action-risk-review.json "$source_dir/security/"
+          install -m 0644 security/action-reachability-review.json "$source_dir/security/"
           install -m 0644 security/action-dependency-audit.json "$source_dir/security/"
           for script in \
             apply_musl_patches.py \

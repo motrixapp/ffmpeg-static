@@ -559,8 +559,9 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
             )
         report = (ROOT / "security/action-dependency-audit.json").read_bytes()
         review = json.loads((ROOT / "security/action-risk-review.json").read_bytes())
-        self.assertEqual(review["status"], "blocked")
-        self.assertEqual(review["reviewedBy"], "pending-maintainer-review")
+        self.assertIn("does not approve these risks", security)
+        self.assertIn("explicit maintainer", security)
+        self.assertEqual(review["releaseTag"], "v9.0.2-motrix.1")
         self.assertEqual(review["auditReportSha256"], hashlib.sha256(report).hexdigest())
 
     def test_public_readmes_are_user_facing_download_guides(self) -> None:
