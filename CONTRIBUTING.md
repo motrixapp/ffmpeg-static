@@ -241,6 +241,15 @@ adequate fix or defensible, specifically reviewed exception exists, keep the
 hold. Approval validity is at most 14 days; a changed Action commit or evidence
 invalidates it. Existing signing-environment approvals remain required.
 
+The supporting [call-path assessment](security/action-reachability-review.json)
+binds the current workflow, source lock, exact upstream bundles, and all 42
+inventoried advisories. It records input limitations and residual risk, including
+active Azure XML processing and Sigstore DSSE signing code. Static inspection is
+not proof of non-reachability or a fix. Its pending-maintainer status neither
+approves an exception nor changes the formal publication hold. A maintainer
+considering a short-lived exception must explicitly accept these residual
+risks in a protected-main change; merging the assessment alone is not approval.
+
 ## Pull request checklist
 
 - Explain the user-visible Motrix capability or security reason for the

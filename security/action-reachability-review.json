@@ -1,0 +1,1813 @@
+{
+  "schemaVersion": 1,
+  "status": "pending-maintainer-decision",
+  "reviewedAt": "2026-10-01",
+  "releaseTag": "v9.0.2-motrix.1",
+  "auditReportSha256": "5a7e3a75060254ad27f1036b74a8f490d05ece6c9f0a72c9157f09cff3dad12e",
+  "workflowSha256": {
+    ".github/workflows/ci.yml": "d29f9b1055282215f0112a0659f95e1b52091fae38526fcd406e1e9ab0da3712",
+    ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
+    ".github/workflows/release.yml": "8718d4a313de75414e4119baa02a2e7f0a7674e651791de50b489728f3a0f9eb"
+  },
+  "sourceLockSha256": "a5a5e929ad59d511a6e16a51a93956920640d08d49b246094a9e23d61302476e",
+  "actionReferences": [
+    "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+    "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+  ],
+  "decision": "Not a risk acceptance. Keep action-risk-review.json blocked. If the maintainer considers an exception, obtain explicit approval of every residual risk, retain exact Action/workflow/input scope and a maximum 14-day expiry, then record the decision in a protected-main PR. Environment confirmations remain mandatory.",
+  "limitations": [
+    "Static call-path review, not complete dynamic taint analysis, exploit testing, or proof of non-reachability.",
+    "The lock inventory includes code beyond the selected entrypoint; findings are retained rather than suppressed.",
+    "No known advisory is considered fixed by hash verification, isolated runners, or documentation.",
+    "This assessment must be rechecked on Action, workflow, source lock, or advisory changes; it does not authorize publication."
+  ],
+  "bundles": {
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": {
+      "dist/index.js": "b604bf1c08a471aedf51ddddbd3e8d03041683db270692d66cd1b4b097457818"
+    },
+    "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9": {
+      "dist/restore/index.js": "79a05f72974c12e3796bf09c897fce453a855f5f4a4abc980be6f671c545954d",
+      "dist/save/index.js": "9193aa9dbe5025f2bf39802ae241470af35c5e5737fd4bec6e1d6dbaad153bb4"
+    },
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a": {
+      "dist/upload/index.js": "eea594941d8ee535974e0fbc03bbdf567f3abc78194f224b93f2df9a887ee2e9"
+    },
+    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c": {
+      "dist/index.js": "f4a6b7046eb834bed98bb687f6d08feb0bfe6fb32570e9da7de0707884c08b31"
+    },
+    "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6": {
+      "dist/index.js": "3ca89e06ffcb09ff97e9b1633575865cad0b23310ac82176d72990d7554836b5",
+      "dist/50.index.js": "45195f12661aeef8aa7ffabfd780d02fffd45c2c37102ff2ecf217a56d6d4f92",
+      "dist/184.index.js": "a55876b6637888e84e212b9c7e3ca7b7f8d8d8a36e1eb1cc01ae93c276ad6bc9",
+      "dist/606.index.js": "629225cc3e937e22ce6b90c21f1d938d1be0716257446593555696bf1d01523e"
+    }
+  },
+  "groups": {
+    "glob_patterns": {
+      "assessment": "Trigger patterns are controlled by the protected workflow, not supplied by release users. This is a bounded-input inference, not proof that vulnerable code is absent.",
+      "controls": [
+        "Download calls select exact names or run-bound numeric artifact IDs; no download pattern input is used.",
+        "Upload/cache paths and attestation globs are fixed short patterns or use the six validated target identifiers; no attacker-provided braces, extglobs, ranges, or repeated GLOBSTAR patterns.",
+        "Any workflow pattern or input-origin change invalidates this assessment."
+      ],
+      "residualRisk": "Globbing code is present and called. A compromised workflow or an unreviewed dynamic pattern could trigger CPU, stack, or memory exhaustion.",
+      "evidence": [
+        "https://github.com/actions/download-artifact/blob/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/src/download-artifact.ts#L86-L164",
+        "https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/src/shared/search.ts#L83-L97",
+        "https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/src/subject.ts#L110-L137"
+      ]
+    },
+    "xml_service_messages": {
+      "assessment": "The vulnerable XML parser/builder is in the bundled Azure SDK; it must not be dismissed as an optional package. Artifact payload bytes are transported as a stream, not intentionally parsed as XML by this workflow. Service error/response parsing remains a possible entry path.",
+      "controls": [
+        "Artifact service URLs originate from the authenticated current-run Actions service, not a dispatch URL input.",
+        "The workflow does not render parsed XML into HTML, execute it as code, or use it to authorize a release.",
+        "TLS and service integrity, exact artifact bindings, independent rebuilds, and subsequent release revalidation remain required; these do not make the XML parser safe."
+      ],
+      "residualRisk": "A malicious service/proxy response could reach XML processing and cause denial of service or altered parsed fields before payload revalidation. Hash checks cannot protect credentials or code already executing in an Action. Hosted-service/TLS trust is an assumption, not a vulnerability fix.",
+      "evidence": [
+        "https://github.com/actions/download-artifact/blob/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/dist/index.js#L93547-L93565",
+        "https://github.com/actions/download-artifact/blob/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/dist/index.js#L126550-L126565",
+        "https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/dist/upload/index.js#L124275-L124291"
+      ]
+    },
+    "lodash_helpers": {
+      "assessment": "Bundled lodash retains vulnerable helpers. The reviewed Action entrypoints do not intentionally compile user-controlled templates or call unset/omit with user-controlled array paths. Static source inspection is not exhaustive dynamic reachability proof.",
+      "controls": [
+        "No dispatch-provided template, imports object, or lodash path input exists.",
+        "Any dependency call-path change or new user-controlled JavaScript object processing requires reassessment."
+      ],
+      "residualRisk": "Template-import injection can execute code if an overlooked or future path admits untrusted import keys; prototype pollution may influence other consumers. No exception can be justified by artifact hashing alone.",
+      "evidence": [
+        "https://github.com/actions/download-artifact/blob/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/src/download-artifact.ts",
+        "https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/src/upload/upload-artifact.ts"
+      ]
+    },
+    "http_optional_features": {
+      "assessment": "Bundled Undici includes vulnerable WebSocket, cookie, retry, and low-level HTTP paths. Reviewed Action source uses HTTPS APIs and artifact streams, not a WebSocket service or downstream HTTP proxy. Definitions in the bundle alone do not prove a reachable call.",
+      "controls": [
+        "No workflow-supplied WebSocket endpoint, cookie API input, blob-like object, upgrade header, or raw duplicate Content-Length array is accepted.",
+        "API and storage destinations come from GitHub/runner services; no custom external artifact repository or run is selected.",
+        "Cookie serialization and retry-to-downstream forwarding are not workflow features; arbitrary proxy environment configuration would require a new review."
+      ],
+      "residualRisk": "Underlying HTTP clients are active. A compromised runner/service/proxy or an overlooked bundled call may violate these assumptions. Network timeouts do not repair protocol parsing, cookie injection, or memory-exhaustion bugs.",
+      "evidence": [
+        "https://github.com/actions/download-artifact/blob/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/src/download-artifact.ts#L61-L80",
+        "https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/src/attest.ts#L34-L42",
+        "https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/src/github-api-helper.ts"
+      ]
+    },
+    "ip_proxy_helpers": {
+      "assessment": "ip-address is bundled in SOCKS/proxy support. This workflow does not implement an SSRF allowlist using its classification/subnet functions or accept a user-provided address. SOCKS/proxy processing is conditional, not demonstrably absent.",
+      "controls": [
+        "Hosted runner network/proxy environment is a trusted input, not a dispatch parameter.",
+        "No arbitrary SOCKS proxy or address-classifier authorization is configured in this workflow."
+      ],
+      "residualRisk": "If proxy configuration or an overlooked call admits unbounded addresses, parsing may exhaust memory; NAT64, cross-family, and link-local classification errors are not repaired. Do not reuse this library as an executable-download URL allowlist.",
+      "evidence": [
+        "https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/dist/index.js#L56330-L56364",
+        "https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/dist/index.js#L100369"
+      ]
+    },
+    "csv_columns": {
+      "assessment": "csv-parse is bundled in attestation checksum-input support. This workflow supplies subject-path, not subject-checksums. No CSV columns/group-columns options are configured by the workflow.",
+      "controls": [
+        "Both attestation invocations use protected static subject-path globs; SBOM is JSON.",
+        "Admitting checksum CSV or column-name objects requires a fresh review."
+      ],
+      "residualRisk": "The package remains vulnerable if the columns path is enabled elsewhere or in a later Action. This is an input-path limitation, not a general prototype-pollution fix.",
+      "evidence": [
+        "https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/src/subject.ts#L39-L94"
+      ]
+    },
+    "dsse_payload_type": {
+      "assessment": "The vulnerable preAuthEncoding function is present and used for actual signatures. The bundled attestation signer fixes the payload type to the ASCII application/vnd.in-toto+json. This prevents caller-selected types here, but does not repair the DSSE type-binding weakness.",
+      "controls": [
+        "Treat provenance bundle payloadType and in-toto predicate types as exact constants during verification; do not rely on a permissive affected verifier.",
+        "Local gh 2.97.0 uses sigstore-go 1.2.2: Envelope.Statement rejects any payloadType other than application/vnd.in-toto+json; its go-securesystemslib 0.11.0 PAE uses byte-preserving Go strings and byte lengths. This is source inspection of the local version, not proof about every runner or future client.",
+        "Pinned Ed25519 manifest verification and exact repository/workflow/subject digests remain independent mandatory release checks.",
+        "Do not claim this issue is unreachable, fixed, or harmless. A maintainer must specifically review signature type-binding risk before any exception."
+      ],
+      "residualRisk": "An attacker can change payloadType to certain non-ASCII strings without changing PAE bytes for an affected verifier. Provenance integrity claims must be qualified until signer and verification behavior are reviewed or upstream fixed.",
+      "evidence": [
+        "https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/dist/index.js#L61439-L61456",
+        "https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/dist/index.js#L121126-L121166",
+        "https://github.com/cli/cli/blob/v2.97.0/go.mod",
+        "https://github.com/sigstore/sigstore-go/blob/v1.2.2/pkg/bundle/signature_content.go#L54-L57",
+        "https://github.com/secure-systems-lab/go-securesystemslib/blob/v0.11.0/dsse/envelope.go#L46-L69"
+      ]
+    }
+  },
+  "advisories": [
+    {
+      "id": "GHSA-23c5-xmqv-rm74",
+      "severity": "high",
+      "summary": "minimatch ReDoS: nested *() extglobs generate catastrophically backtracking regular expressions",
+      "url": "https://github.com/advisories/GHSA-23c5-xmqv-rm74",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "10.1.1"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "5.1.6"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "9.0.5"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "minimatch",
+          "affected": ">= 10.0.0, < 10.2.3",
+          "firstPatched": "10.2.3"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 9.0.0, < 9.0.7",
+          "firstPatched": "9.0.7"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 8.0.0, < 8.0.6",
+          "firstPatched": "8.0.6"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 7.0.0, < 7.4.8",
+          "firstPatched": "7.4.8"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 6.0.0, < 6.2.2",
+          "firstPatched": "6.2.2"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 5.0.0, < 5.1.8",
+          "firstPatched": "5.1.8"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 4.0.0, < 4.2.5",
+          "firstPatched": "4.2.5"
+        },
+        {
+          "package": "minimatch",
+          "affected": "< 3.1.4",
+          "firstPatched": "3.1.4"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-2mjp-6q6p-2qxm",
+      "severity": "medium",
+      "summary": "Undici has an HTTP Request/Response Smuggling issue",
+      "url": "https://github.com/advisories/GHSA-2mjp-6q6p-2qxm",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.24.0",
+          "firstPatched": "6.24.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.24.0",
+          "firstPatched": "7.24.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-2vr4-cq9g-pvrc",
+      "severity": "medium",
+      "summary": "ip-address: no classifier recognizes the NAT64 local-use range 64:ff9b:1::/48, allowing SSRF and trust-boundary bypass",
+      "url": "https://github.com/advisories/GHSA-2vr4-cq9g-pvrc",
+      "group": "ip_proxy_helpers",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "ip-address",
+          "version": "10.4.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "ip-address",
+          "affected": ">= 10.2.0, <= 10.5.0",
+          "firstPatched": "10.5.1"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-35p6-xmwp-9g52",
+      "severity": "low",
+      "summary": "undici vulnerable to HTTP response queue poisoning via keep-alive socket reuse",
+      "url": "https://github.com/advisories/GHSA-35p6-xmwp-9g52",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.27.0",
+          "firstPatched": "6.27.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.28.0",
+          "firstPatched": "7.28.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.5.0",
+          "firstPatched": "8.5.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-3jxr-9vmj-r5cp",
+      "severity": "high",
+      "summary": "brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups",
+      "url": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": ">= 3.0.0, < 5.0.7",
+          "firstPatched": "5.0.7"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": "< 1.1.16",
+          "firstPatched": "1.1.16"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 2.0.0, < 2.1.2",
+          "firstPatched": "2.1.2"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-3ppc-4f35-3m26",
+      "severity": "high",
+      "summary": "minimatch has a ReDoS via repeated wildcards with non-matching literal in pattern",
+      "url": "https://github.com/advisories/GHSA-3ppc-4f35-3m26",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "10.1.1"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "5.1.6"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "9.0.5"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "minimatch",
+          "affected": ">= 10.0.0, < 10.2.1",
+          "firstPatched": "10.2.1"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 9.0.0, < 9.0.6",
+          "firstPatched": "9.0.6"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 8.0.0, < 8.0.5",
+          "firstPatched": "8.0.5"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 7.0.0, < 7.4.7",
+          "firstPatched": "7.4.7"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 6.0.0, < 6.2.1",
+          "firstPatched": "6.2.1"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 5.0.0, < 5.1.7",
+          "firstPatched": "5.1.7"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 4.0.0, < 4.2.4",
+          "firstPatched": "4.2.4"
+        },
+        {
+          "package": "minimatch",
+          "affected": "< 3.1.3",
+          "firstPatched": "3.1.3"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-3wwx-pv8p-q78v",
+      "severity": "medium",
+      "summary": "undici vulnerable to Denial of Service via unhandled error in WebSocket permessage-deflate decompression",
+      "url": "https://github.com/advisories/GHSA-3wwx-pv8p-q78v",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "package": "undici",
+          "version": "6.27.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": ">= 6.25.0, < 6.28.1",
+          "firstPatched": "6.28.1"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.28.0, < 7.29.1",
+          "firstPatched": "7.29.1"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.1.0, < 8.10.2",
+          "firstPatched": "8.10.2"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-4992-7rv2-5pvq",
+      "severity": "medium",
+      "summary": "Undici has CRLF Injection in undici via `upgrade` option",
+      "url": "https://github.com/advisories/GHSA-4992-7rv2-5pvq",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.24.0",
+          "firstPatched": "6.24.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.24.0",
+          "firstPatched": "7.24.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-5wm8-gmm8-39j9",
+      "severity": "high",
+      "summary": "fast-xml-builder allows attribute values with unwanted quotes to bypass malicious or unwanted attributes",
+      "url": "https://github.com/advisories/GHSA-5wm8-gmm8-39j9",
+      "group": "xml_service_messages",
+      "affected": [
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "fast-xml-builder",
+          "version": "1.0.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "fast-xml-builder",
+          "affected": "<= 1.1.6",
+          "firstPatched": "1.1.7"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-6j4f-fj2g-mc7p",
+      "severity": "high",
+      "summary": "brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion",
+      "url": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "brace-expansion",
+          "version": "2.1.4"
+        },
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "brace-expansion",
+          "version": "5.0.9"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": ">= 4.0.0, < 5.0.10",
+          "firstPatched": "5.0.10"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 3.0.0, < 3.0.7",
+          "firstPatched": "3.0.7"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 2.0.0, < 2.1.5",
+          "firstPatched": "2.1.5"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": "< 1.1.19",
+          "firstPatched": "1.1.19"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-7h2j-956f-4vf2",
+      "severity": "high",
+      "summary": "@isaacs/brace-expansion has Uncontrolled Resource Consumption",
+      "url": "https://github.com/advisories/GHSA-7h2j-956f-4vf2",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "@isaacs/brace-expansion",
+          "version": "5.0.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "@isaacs/brace-expansion",
+          "affected": "<= 5.0.0",
+          "firstPatched": "5.0.1"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-7r86-cg39-jmmj",
+      "severity": "high",
+      "summary": "minimatch has ReDoS: matchOne() combinatorial backtracking via multiple non-adjacent GLOBSTAR segments",
+      "url": "https://github.com/advisories/GHSA-7r86-cg39-jmmj",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "10.1.1"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "5.1.6"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "minimatch",
+          "version": "9.0.5"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "minimatch",
+          "affected": ">= 10.0.0, < 10.2.3",
+          "firstPatched": "10.2.3"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 9.0.0, < 9.0.7",
+          "firstPatched": "9.0.7"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 8.0.0, < 8.0.6",
+          "firstPatched": "8.0.6"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 7.0.0, < 7.4.8",
+          "firstPatched": "7.4.8"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 6.0.0, < 6.2.2",
+          "firstPatched": "6.2.2"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 5.0.0, < 5.1.8",
+          "firstPatched": "5.1.8"
+        },
+        {
+          "package": "minimatch",
+          "affected": ">= 4.0.0, < 4.2.5",
+          "firstPatched": "4.2.5"
+        },
+        {
+          "package": "minimatch",
+          "affected": "< 3.1.3",
+          "firstPatched": "3.1.3"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-8cw4-87c7-c6xx",
+      "severity": "medium",
+      "summary": "node-csv: Prototype replacement still reachable via columns path",
+      "url": "https://github.com/advisories/GHSA-8cw4-87c7-c6xx",
+      "group": "csv_columns",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "csv-parse",
+          "version": "7.0.1"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "csv-parse",
+          "affected": "< 7.0.2",
+          "firstPatched": "7.0.2"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-8gc5-j5rx-235r",
+      "severity": "high",
+      "summary": "fast-xml-parser affected by numeric entity expansion bypassing all entity expansion limits (incomplete fix for CVE-2026-26278)",
+      "url": "https://github.com/advisories/GHSA-8gc5-j5rx-235r",
+      "group": "xml_service_messages",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "fast-xml-parser",
+          "version": "5.3.4"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "fast-xml-parser",
+          "version": "5.4.1"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 5.0.0, < 5.5.6",
+          "firstPatched": "5.5.6"
+        },
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 4.0.0-beta.3, < 4.5.5",
+          "firstPatched": "4.5.5"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-8xcm-r25x-g524",
+      "severity": "medium",
+      "summary": "undici vulnerable to downstream response desynchronization via retry interceptor",
+      "url": "https://github.com/advisories/GHSA-8xcm-r25x-g524",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.28.0",
+          "firstPatched": "6.28.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.29.0",
+          "firstPatched": "7.29.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.9.0",
+          "firstPatched": "8.9.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-f23m-r3pf-42rh",
+      "severity": "medium",
+      "summary": "lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`",
+      "url": "https://github.com/advisories/GHSA-f23m-r3pf-42rh",
+      "group": "lodash_helpers",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "lodash",
+          "version": "4.17.23"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "lodash",
+          "version": "4.17.23"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "lodash",
+          "affected": "<= 4.17.23",
+          "firstPatched": "4.18.0"
+        },
+        {
+          "package": "lodash-es",
+          "affected": "<= 4.17.23",
+          "firstPatched": "4.18.0"
+        },
+        {
+          "package": "lodash-amd",
+          "affected": "<= 4.17.23",
+          "firstPatched": "4.18.0"
+        },
+        {
+          "package": "lodash.unset",
+          "affected": ">= 4.0.0, < 4.18.0",
+          "firstPatched": "4.18.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-f269-vfmq-vjvj",
+      "severity": "high",
+      "summary": "Undici: Malicious WebSocket 64-bit length overflows parser and crashes the client",
+      "url": "https://github.com/advisories/GHSA-f269-vfmq-vjvj",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": ">= 6.0.0, < 6.24.0",
+          "firstPatched": "6.24.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.24.0",
+          "firstPatched": "7.24.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-f886-m6hf-6m8v",
+      "severity": "medium",
+      "summary": "brace-expansion: Zero-step sequence causes process hang and memory exhaustion",
+      "url": "https://github.com/advisories/GHSA-f886-m6hf-6m8v",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": ">= 4.0.0, < 5.0.5",
+          "firstPatched": "5.0.5"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 3.0.0, < 3.0.2",
+          "firstPatched": "3.0.2"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 2.0.0, < 2.0.3",
+          "firstPatched": "2.0.3"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": "< 1.1.13",
+          "firstPatched": "1.1.13"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-fj3w-jwp8-x2g3",
+      "severity": "low",
+      "summary": "fast-xml-parser has stack overflow in XMLBuilder with preserveOrder",
+      "url": "https://github.com/advisories/GHSA-fj3w-jwp8-x2g3",
+      "group": "xml_service_messages",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "fast-xml-parser",
+          "version": "5.3.4"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 5.0.0, < 5.3.8",
+          "firstPatched": "5.3.8"
+        },
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 4.0.0-beta.0, < 4.5.4",
+          "firstPatched": "4.5.4"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-g8m3-5g58-fq7m",
+      "severity": "low",
+      "summary": "undici vulnerable to Set-Cookie SameSite attribute downgrade via permissive substring matching",
+      "url": "https://github.com/advisories/GHSA-g8m3-5g58-fq7m",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.27.0",
+          "firstPatched": "6.27.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.28.0",
+          "firstPatched": "7.28.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.5.0",
+          "firstPatched": "8.5.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-gh4j-gqv2-49f6",
+      "severity": "medium",
+      "summary": "fast-xml-parser XMLBuilder: XML Comment and CDATA Injection via Unescaped Delimiters",
+      "url": "https://github.com/advisories/GHSA-gh4j-gqv2-49f6",
+      "group": "xml_service_messages",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "fast-xml-parser",
+          "version": "5.3.4"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "fast-xml-parser",
+          "version": "5.4.1"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "fast-xml-parser",
+          "affected": "< 5.7.0",
+          "firstPatched": "5.7.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-h3mg-xc3c-68pw",
+      "severity": "medium",
+      "summary": "ip-address: Address6 builds a parse diagnostic proportional to the input with no length bound, allowing a single long string to stall or crash the process",
+      "url": "https://github.com/advisories/GHSA-h3mg-xc3c-68pw",
+      "group": "ip_proxy_helpers",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "ip-address",
+          "version": "10.4.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "ip-address",
+          "affected": "<= 10.7.0",
+          "firstPatched": "10.7.1"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-j6r3-76f7-8jcv",
+      "severity": "medium",
+      "summary": "ip-address: isInSubnet() and isHostInSubnet() compare addresses of different families as if they shared an address space, allowing an allowlist check to admit an address outside its range",
+      "url": "https://github.com/advisories/GHSA-j6r3-76f7-8jcv",
+      "group": "ip_proxy_helpers",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "ip-address",
+          "version": "10.4.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "ip-address",
+          "affected": "<= 10.7.0",
+          "firstPatched": "10.7.1"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-jfc7-64v2-mr8c",
+      "severity": "medium",
+      "summary": "@sigstore/core has DSSE payloadType type-binding failure",
+      "url": "https://github.com/advisories/GHSA-jfc7-64v2-mr8c",
+      "group": "dsse_payload_type",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "@sigstore/core",
+          "version": "2.0.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "@sigstore/core",
+          "affected": "<= 3.2.0",
+          "firstPatched": "3.2.1"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-jmr7-xgp7-cmfj",
+      "severity": "high",
+      "summary": "fast-xml-parser affected by DoS through entity expansion in DOCTYPE (no expansion limit)",
+      "url": "https://github.com/advisories/GHSA-jmr7-xgp7-cmfj",
+      "group": "xml_service_messages",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "fast-xml-parser",
+          "version": "5.3.4"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 4.1.3, < 4.5.4",
+          "firstPatched": "4.5.4"
+        },
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 5.0.0, < 5.3.6",
+          "firstPatched": "5.3.6"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-jp2q-39xq-3w4g",
+      "severity": "medium",
+      "summary": "Entity Expansion Limits Bypassed When Set to Zero Due to JavaScript Falsy Evaluation in fast-xml-parser",
+      "url": "https://github.com/advisories/GHSA-jp2q-39xq-3w4g",
+      "group": "xml_service_messages",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "fast-xml-parser",
+          "version": "5.3.4"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "fast-xml-parser",
+          "version": "5.4.1"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 4.0.0-beta.3, < 4.5.5",
+          "firstPatched": "4.5.5"
+        },
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 5.0.0, < 5.5.7",
+          "firstPatched": "5.5.7"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-jxxr-4gwj-5jf2",
+      "severity": "medium",
+      "summary": "brace-expansion: Large numeric range defeats documented `max` DoS protection",
+      "url": "https://github.com/advisories/GHSA-jxxr-4gwj-5jf2",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": ">= 5.0.0, < 5.0.6",
+          "firstPatched": "5.0.6"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-m7jm-9gc2-mpf2",
+      "severity": "critical",
+      "summary": "fast-xml-parser has an entity encoding bypass via regex injection in DOCTYPE entity names",
+      "url": "https://github.com/advisories/GHSA-m7jm-9gc2-mpf2",
+      "group": "xml_service_messages",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "fast-xml-parser",
+          "version": "5.3.4"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 5.0.0, < 5.3.5",
+          "firstPatched": "5.3.5"
+        },
+        {
+          "package": "fast-xml-parser",
+          "affected": ">= 4.1.3, < 4.5.4",
+          "firstPatched": "4.5.4"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-m8rv-5g2x-5cg5",
+      "severity": "medium",
+      "summary": "undici vulnerable to CRLF Injection via blob-like body 'type' property",
+      "url": "https://github.com/advisories/GHSA-m8rv-5g2x-5cg5",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.28.0",
+          "firstPatched": "6.28.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.29.0",
+          "firstPatched": "7.29.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.9.0",
+          "firstPatched": "8.9.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "summary": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+      "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": ">= 4.0.0, < 5.0.8",
+          "firstPatched": "5.0.8"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 3.0.0, < 3.0.3",
+          "firstPatched": "3.0.3"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 2.0.0, < 2.1.3",
+          "firstPatched": "2.1.3"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": "< 1.1.17",
+          "firstPatched": "1.1.17"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-p88m-4jfj-68fv",
+      "severity": "medium",
+      "summary": "undici vulnerable to HTTP header injection via Set-Cookie percent-decoding",
+      "url": "https://github.com/advisories/GHSA-p88m-4jfj-68fv",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.27.0",
+          "firstPatched": "6.27.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.28.0",
+          "firstPatched": "7.28.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.5.0",
+          "firstPatched": "8.5.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-q2hr-2g5m-vwhr",
+      "severity": "medium",
+      "summary": "brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service",
+      "url": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "brace-expansion",
+          "version": "2.1.4"
+        },
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "brace-expansion",
+          "version": "5.0.9"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": ">= 4.0.0, < 5.0.12",
+          "firstPatched": "5.0.12"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 3.0.0, < 3.0.9",
+          "firstPatched": "3.0.9"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 2.0.0, < 2.1.7",
+          "firstPatched": "2.1.7"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": "< 1.1.21",
+          "firstPatched": "1.1.21"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-qhr7-859c-m2p7",
+      "severity": "high",
+      "summary": "brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion",
+      "url": "https://github.com/advisories/GHSA-qhr7-859c-m2p7",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "brace-expansion",
+          "version": "2.1.4"
+        },
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "brace-expansion",
+          "version": "5.0.9"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": ">= 4.0.0, < 5.0.11",
+          "firstPatched": "5.0.11"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 3.0.0, < 3.0.8",
+          "firstPatched": "3.0.8"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 2.0.0, < 2.1.6",
+          "firstPatched": "2.1.6"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": "< 1.1.20",
+          "firstPatched": "1.1.20"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-r53p-7pc4-xj5r",
+      "severity": "low",
+      "summary": "undici vulnerable to downstream response splitting via retry interceptor",
+      "url": "https://github.com/advisories/GHSA-r53p-7pc4-xj5r",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.28.1",
+          "firstPatched": "6.28.1"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.29.1",
+          "firstPatched": "7.29.1"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.10.2",
+          "firstPatched": "8.10.2"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-r5fr-rjxr-66jc",
+      "severity": "high",
+      "summary": "lodash vulnerable to Code Injection via `_.template` imports key names",
+      "url": "https://github.com/advisories/GHSA-r5fr-rjxr-66jc",
+      "group": "lodash_helpers",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "lodash",
+          "version": "4.17.23"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "lodash",
+          "version": "4.17.23"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "lodash",
+          "affected": ">= 4.0.0, <= 4.17.23",
+          "firstPatched": "4.18.0"
+        },
+        {
+          "package": "lodash-es",
+          "affected": ">= 4.0.0, <= 4.17.23",
+          "firstPatched": "4.18.0"
+        },
+        {
+          "package": "lodash-amd",
+          "affected": ">= 4.0.0, <= 4.17.23",
+          "firstPatched": "4.18.0"
+        },
+        {
+          "package": "lodash.template",
+          "affected": ">= 4.0.0, < 4.18.0",
+          "firstPatched": "4.18.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-rfgv-xxqx-mfg5",
+      "severity": "high",
+      "summary": "undici vulnerable to Denial of Service via unrequested WebSocket subprotocol",
+      "url": "https://github.com/advisories/GHSA-rfgv-xxqx-mfg5",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": ">= 6.7.0, < 6.28.1",
+          "firstPatched": "6.28.1"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.29.1",
+          "firstPatched": "7.29.1"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.10.2",
+          "firstPatched": "8.10.2"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-rgw5-rvv9-x895",
+      "severity": "high",
+      "summary": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+      "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+      "group": "glob_patterns",
+      "affected": [
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "1.1.12"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "2.0.2"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "brace-expansion",
+          "version": "5.0.3"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "brace-expansion",
+          "affected": "< 1.1.18",
+          "firstPatched": "1.1.18"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 2.0.0, < 2.1.4",
+          "firstPatched": "2.1.4"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 3.0.0, < 3.0.6",
+          "firstPatched": "3.0.6"
+        },
+        {
+          "package": "brace-expansion",
+          "affected": ">= 4.0.0, < 5.0.9",
+          "firstPatched": "5.0.9"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-rpw4-54j3-4h4q",
+      "severity": "medium",
+      "summary": "ip-address: Address6.isLinkLocal() recognizes fe80::/64 rather than fe80::/10, allowing SSRF and trust-boundary bypass to on-link hosts",
+      "url": "https://github.com/advisories/GHSA-rpw4-54j3-4h4q",
+      "group": "ip_proxy_helpers",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "ip-address",
+          "version": "10.4.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "ip-address",
+          "affected": "<= 10.5.0",
+          "firstPatched": "10.5.1"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-v3r7-h72x-cjcm",
+      "severity": "medium",
+      "summary": "undici vulnerable to cookie attribute injection via unsanitized domain and unparsed setCookie fields",
+      "url": "https://github.com/advisories/GHSA-v3r7-h72x-cjcm",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "package": "undici",
+          "version": "6.27.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.28.0",
+          "firstPatched": "6.28.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.29.0",
+          "firstPatched": "7.29.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.9.0",
+          "firstPatched": "8.9.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-v9p9-hfj2-hcw8",
+      "severity": "high",
+      "summary": "Undici has Unhandled Exception in WebSocket Client Due to Invalid server_max_window_bits Validation",
+      "url": "https://github.com/advisories/GHSA-v9p9-hfj2-hcw8",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.24.0",
+          "firstPatched": "6.24.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.24.0",
+          "firstPatched": "7.24.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-vrm6-8vpv-qv8q",
+      "severity": "high",
+      "summary": "Undici has Unbounded Memory Consumption in WebSocket permessage-deflate Decompression",
+      "url": "https://github.com/advisories/GHSA-vrm6-8vpv-qv8q",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.24.0",
+          "firstPatched": "6.24.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.24.0",
+          "firstPatched": "7.24.0"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-vxpw-j846-p89q",
+      "severity": "high",
+      "summary": "undici WebSocket client vulnerable to denial of service via fragment count bypass",
+      "url": "https://github.com/advisories/GHSA-vxpw-j846-p89q",
+      "group": "http_optional_features",
+      "affected": [
+        {
+          "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+          "package": "undici",
+          "version": "6.25.0"
+        },
+        {
+          "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "package": "undici",
+          "version": "6.23.0"
+        },
+        {
+          "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "package": "undici",
+          "version": "6.23.0"
+        }
+      ],
+      "upstreamRanges": [
+        {
+          "package": "undici",
+          "affected": "< 6.27.0",
+          "firstPatched": "6.27.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 7.0.0, < 7.28.0",
+          "firstPatched": "7.28.0"
+        },
+        {
+          "package": "undici",
+          "affected": ">= 8.0.0, < 8.5.0",
+          "firstPatched": "8.5.0"
+        }
+      ]
+    }
+  ]
+}
