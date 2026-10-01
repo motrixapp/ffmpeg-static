@@ -74,6 +74,18 @@ and cache-policy changes. The new single-version exception expires on
 2026-10-15 UTC and is recorded separately; the previous `.1` approval is not
 reused. All 42 advisories and protected-Environment confirmations remain in
 force. This decision does not mean a public Release already exists.
+Formal `.2` run `36819481774` completed all six candidate builds and four
+independent clean rebuilds, then failed closed in secret-free pre-sign checks.
+Windows low-level readers used CRT text mode, Intel macOS did not have the
+required linker-generated ad-hoc signature baseline, and x64 NASM evidence was
+missing from staged verification inputs. No signing Secret or public Release
+was reached. Keep both immutable tags unchanged. Candidate `.3` corrects those
+integration errors without relaxing byte comparisons, file bounds, NASM source
+authentication, Developer ID signing, notarization, or protected Environments.
+Read-only NASM evidence is included in exact input/rebuild hashes and is never
+executed by signers or distributed in payload archives. Its changed lock and
+workflows invalidate the `.2` exception: `.3` remains blocked pending a new
+explicit, scope-bound maintainer risk decision for all inventoried advisories.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -130,8 +142,8 @@ PGP verification is unchanged.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.2-motrix.2
-asset=ffmpeg-9.0.2-motrix.2-linux-x64.tar.gz
+tag=v9.0.2-motrix.3
+asset=ffmpeg-9.0.2-motrix.3-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS

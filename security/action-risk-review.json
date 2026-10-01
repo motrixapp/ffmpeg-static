@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "status": "approved",
+  "status": "blocked",
   "reviewedAt": "2026-10-01",
   "validUntil": "2026-10-15",
-  "reviewedBy": "agalwood",
-  "decision": "On 2026-10-01 agalwood explicitly authorized continuing after the replacement question disclosed the full v9.0.2-motrix.2 scope and all 42 residual advisories (1 Critical, 18 High, 19 Medium, 4 Low). Record a limited exception solely for this exact release tag and bound source lock, workflow, static assessment, full advisory report and immutable official Action commits, expiring on 2026-10-15 UTC. The approved scope corrects release_tag propagation, increments BUILD_REVISION, and handles SourceForge HTTP 522 via bounded same-URL retries and target/runner-OS-scoped source-download cache restoration. CI run 36812820986 passed all nine required checks for that implementation before this decision. Restored files are reauthenticated against current pins before compilation; no compiled or signing inputs are cached. Locked source archives and URLs, toolchains, Action references, and all inventoried residual risks are unchanged. Audit 36807648066 is the same-day complete inventory. No vulnerability is claimed fixed or wholly unreachable, including cache service/extraction risks before validation and the signature type-binding advisory. The previous v9.0.2-motrix.1 exception is not reused and its annotated tag remains immutable with no public Release. Preserve every signing, notarization, independent-verification, Immutable Releases and protected-Environment confirmation gate. This authorization is neither an Environment approval nor an exception for another tag, changed inputs, new advisories, or publication beyond the deadline.",
+  "reviewedBy": "pending-maintainer-review",
+  "decision": "Publication of v9.0.2-motrix.3 is blocked pending a new explicit maintainer decision for this complete changed scope and all 42 residual advisories (1 Critical, 18 High, 19 Medium, 4 Low). Formal .2 run 36819481774 failed closed in secret-free pre-sign checks after all six candidate and four independent builds completed; neither signing nor publication was reached. Candidate .3 adds O_BINARY to protected low-level regular-file readers, a deterministic linker ad-hoc baseline on both macOS architectures, and bounded read-only x64 NASM evidence in exact input/rebuild comparison and final verification. The NASM evidence is not executed by signing jobs or included in distributed payloads. Native Windows reader regressions and macOS ad-hoc checks are required in CI. BUILD_REVISION changes, but locked source archives/URLs, toolchains, official Action commits, and all inventoried advisories are unchanged. Audit 36807648066 remains the same-day complete inventory; no vulnerability is claimed fixed or wholly unreachable, including cache service/extraction and signature type-binding risks. The previous .1 and .2 exceptions are single-version decisions and cannot authorize .3; both annotated tags remain immutable. All file/race/size/hash guards, independent clean rebuilds, Developer ID signing/notarization, Ed25519 authentication, Immutable Releases, and protected-Environment confirmations remain required. This blocked record grants no Environment approval or release authority.",
   "actionReferences": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
@@ -57,12 +57,12 @@
     "GHSA-vxpw-j846-p89q"
   ],
   "auditReportSha256": "06e7bf28f087a2ed4ef7c4c9d244c79267b439da48924ee07081d03750cafcd1",
-  "releaseTag": "v9.0.2-motrix.2",
-  "sourceLockSha256": "f53bdf9873fcf708cfa2ef2b21f1cdba38555c26b9dafb2e561b6dd954064519",
+  "releaseTag": "v9.0.2-motrix.3",
+  "sourceLockSha256": "73214c576dfbe22e627fe25f9476c2e38a465f4e5b04c9324c1b3da5dede8e73",
   "workflowSha256": {
-    ".github/workflows/ci.yml": "36fc94182b656658d6d3d4c29ef3b9aba5dfd45132d7c29cd2ed21787257c931",
+    ".github/workflows/ci.yml": "a05c0a615b81b3ccfd88d0f5e8c0dee08db5b185ed597a2d35bd446f89988357",
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "c9cc3fe134eca3d67bc30893f01e7d01cd3f044a7509b65ad722c942887ecdd6"
+    ".github/workflows/release.yml": "83246eb11c6a49d6726f56b32f458fcbf7e95a0b1d8461f57aafcbbbef2f9937"
   },
-  "assessmentSha256": "5125e2d4c4b832cad353264694d864e1555937ef0fea029e2e81ed32c5a6e260"
+  "assessmentSha256": "74397ec71d9ea7bef75d99a2578e76ca5a86e1f192d07c7de740ff7fe8217d00"
 }

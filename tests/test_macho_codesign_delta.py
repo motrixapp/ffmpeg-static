@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import struct
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -84,6 +87,27 @@ def macho(flags: int, cms: bool, code_byte: int = 0x41) -> bytes:
 
 
 class MachOCodesignDeltaTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "requires Apple's linker and strip")
+    def test_real_linker_and_strip_preserve_adhoc_baseline_on_both_architectures(self) -> None:
+        for arch in ("x86_64", "arm64"):
+            with self.subTest(arch=arch), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "probe.c"
+                source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+                binary = root / "probe"
+                command = [
+                    "/usr/bin/clang", "-arch", arch, "-mmacosx-version-min=12.0",
+                    "-Wl,-dead_strip,-adhoc_codesign", str(source), "-o", str(binary),
+                ]
+                result = subprocess.run(command, capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                DELTA.verify_unsigned(binary.read_bytes())
+                subprocess.run(["/usr/bin/strip", "-S", str(binary)], check=True)
+                DELTA.verify_unsigned(binary.read_bytes())
+                subprocess.run(
+                    ["/usr/bin/codesign", "--verify", "--strict", str(binary)], check=True
+                )
+
     def test_accepts_signature_only_developer_id_transition(self) -> None:
         unsigned = macho(DELTA.CS_ADHOC, False)
         DELTA.verify_unsigned(unsigned)

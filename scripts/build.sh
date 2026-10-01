@@ -429,7 +429,9 @@ case "$TARGET" in
     TARGET_CFLAGS="-O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -arch ${MAC_ARCH} -mmacosx-version-min=${DEPLOYMENT_TARGET}"
     # Apple's linker derives LC_UUID from output content. Keep that default:
     # current dyld rejects executable Mach-O files with LC_UUID suppressed.
-    TARGET_LDFLAGS="-arch ${MAC_ARCH} -mmacosx-version-min=${DEPLOYMENT_TARGET} -Wl,-dead_strip"
+    # Both architectures need the same deterministic ad-hoc baseline so the
+    # Developer ID delta guard can reject every non-signature byte change.
+    TARGET_LDFLAGS="-arch ${MAC_ARCH} -mmacosx-version-min=${DEPLOYMENT_TARGET} -Wl,-dead_strip,-adhoc_codesign"
     SDK_VERSION=$(/usr/bin/xcrun --sdk macosx --show-sdk-version) \
       || die 'could not determine the macOS SDK version'
     TOOLCHAIN_NAME=apple-clang-sdk

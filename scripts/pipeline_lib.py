@@ -822,7 +822,7 @@ def expected_configure_args(target: str, sources: dict[str, str]) -> list[str]:
         )
         ldflags = (
             f"-arch {mac_arch} -mmacosx-version-min={sources['MACOS_MIN_VERSION']} "
-            "-Wl,-dead_strip"
+            "-Wl,-dead_strip,-adhoc_codesign"
         )
         commands = ("clang", "clang++", "ar", "ranlib", "strip", "nm")
         tail = [

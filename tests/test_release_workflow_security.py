@@ -166,6 +166,41 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
         self.assertIn("Mach-O must contain exactly one LC_UUID command", verifier)
         self.assertIn("Mach-O LC_UUID value is invalid", verifier)
 
+    def test_macos_requires_linker_adhoc_baseline_before_native_ci_smoke(self) -> None:
+        build = (ROOT / "scripts/build.sh").read_text(encoding="utf-8")
+        contract = (ROOT / "scripts/pipeline_lib.py").read_text(encoding="utf-8")
+        self.assertIn("-Wl,-dead_strip,-adhoc_codesign", build)
+        self.assertIn("-Wl,-dead_strip,-adhoc_codesign", contract)
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/verify_macho_codesign_delta.py --unsigned-only", workflow)
+
+    def test_x64_staging_preserves_read_only_nasm_for_every_verification_phase(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        for step, next_step in (
+            ("Stage exact signing input", "Upload signing input"),
+            ("Stage exact independent rebuild result", "Upload independent clean rebuild"),
+        ):
+            stage = workflow.split(f"      - name: {step}\n", 1)[1].split(
+                f"\n      - name: {next_step}", 1
+            )[0]
+            self.assertIn('if [[ "$TARGET" == *-x64 ]]', stage)
+            self.assertIn('! -L "build/${TARGET}/work/nasm/bin/nasm"', stage)
+            self.assertIn('install -m 0644 "build/${TARGET}/work/nasm/bin/nasm"', stage)
+        mac = workflow.split("\n  macos-signed-smoke:\n", 1)[1].split(
+            "\n  windows-signed-smoke:\n", 1
+        )[0]
+        self.assertIn('expected.add("work/nasm/bin/nasm")', mac)
+        self.assertLess(
+            mac.index('install -m 0644 "build/unsigned/${TARGET}/work/nasm/bin/nasm"'),
+            mac.index('scripts/verify-binary.sh "$TARGET"'),
+        )
+        windows = workflow.split("\n  windows-signed-structural:\n", 1)[1].split(
+            "\n  assemble:\n", 1
+        )[0]
+        self.assertIn('expected_unsigned.add("work/nasm/bin/nasm")', windows)
+        self.assertIn('destination.chmod(0o644)', windows)
+        self.assertNotIn('bin/nasm" --', workflow)
+
     def test_macos_runtime_checks_use_the_strict_shared_parser(self) -> None:
         signer = (ROOT / "scripts/sign-macos.sh").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -561,7 +596,7 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
         review = json.loads((ROOT / "security/action-risk-review.json").read_bytes())
         self.assertIn("does not approve these risks", security)
         self.assertIn("explicit maintainer", security)
-        self.assertEqual(review["releaseTag"], "v9.0.2-motrix.2")
+        self.assertEqual(review["releaseTag"], "v9.0.2-motrix.3")
         self.assertEqual(review["auditReportSha256"], hashlib.sha256(report).hexdigest())
 
     def test_public_readmes_are_user_facing_download_guides(self) -> None:

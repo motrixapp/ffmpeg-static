@@ -254,7 +254,7 @@ def _source_style(path: Path, leading: bytes = b"") -> Optional[frozenset[str]]:
 
 
 def _read_regular_file(path: Path, expected: os.stat_result) -> bytes:
-    flags = os.O_RDONLY
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
     if hasattr(os, "O_NOFOLLOW"):
