@@ -23,10 +23,12 @@ from pipeline_lib import (
     MAX_LICENSE_FILE_BYTES,
     MAX_NOTARIZATION_JSON_BYTES,
     PACKAGE_README,
+    _read_bounded_regular_file,
     artifact_license,
     artifact_stem,
     canonical_json,
     load_sources,
+    load_json_bytes,
     load_json_file,
     minimum_os,
     notarization_log_asset_name,
@@ -48,12 +50,15 @@ def digest_bytes(data: bytes) -> str:
 
 def _load_build_info(
     path: Path, target_name: str, sources: dict[str, str], configure_args: list[str]
-) -> tuple[dict[str, object], list[dict[str, str]]]:
-    info = load_json_file(path, "build info", maximum=256 * 1024)
-    normalized, dependencies = validate_build_info(
+) -> tuple[bytes, list[dict[str, str]]]:
+    # Validate and archive the SAME bounded, race-checked binary read. Formatting
+    # and array order are part of the approved input bytes, not disposable data.
+    data = _read_bounded_regular_file(path, "build info", 256 * 1024)
+    info = load_json_bytes(data, "build info", maximum=256 * 1024)
+    _normalized, dependencies = validate_build_info(
         info, target_name, sources, configure_args
     )
-    return normalized, dependencies
+    return data, dependencies
 
 
 def _license_entries(
@@ -135,10 +140,10 @@ def archive_entries(
     configure_args = parse_configure_record(configure_data)
     entries.append(("configure.txt", configure_data, 0o644))
 
-    info, dependencies = _load_build_info(
+    info_bytes, dependencies = _load_build_info(
         build_info, target_name, sources, configure_args
     )
-    entries.append(("BUILD-INFO.json", canonical_json(info), 0o644))
+    entries.append(("BUILD-INFO.json", info_bytes, 0o644))
     entries.append(("README.txt", PACKAGE_README, 0o644))
     license_entries, license_records = _license_entries(
         payload, target_name, sources

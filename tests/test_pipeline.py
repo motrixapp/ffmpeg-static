@@ -1605,6 +1605,44 @@ class PipelineTest(unittest.TestCase):
                         expected,
                     )
 
+    def test_real_packager_preserves_approved_build_info_bytes_for_all_targets(self) -> None:
+        # The builder emits valid, noncanonical JSON. Package it through the
+        # real isolated CLI; retaining only equal parsed objects is insufficient.
+        for target in EXPECTED_TARGETS:
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                lock, _assets = self.make_sources(base)
+                payload, build_info = self.make_payload(base, target, lock)
+                info = json.loads(build_info.read_bytes())
+                # Preserve source list order too: validation may return a
+                # normalized dependency list for metadata/SBOM separately.
+                info["dependencies"].reverse()
+                approved_bytes = (
+                    " \r\n" + json.dumps(info, indent=4, sort_keys=False) + "\r\n\t"
+                ).encode("utf-8")
+                self.assertNotEqual(approved_bytes, pipeline_lib.canonical_json(info))
+                build_info.write_bytes(approved_bytes)
+                output = base / "out"
+                result = subprocess.run(
+                    [sys.executable, "-I", str(SCRIPTS / "package-artifact.py"),
+                     "--target", target, "--payload", str(payload),
+                     "--build-info", str(build_info), "--output-dir", str(output),
+                     "--sources-file", str(lock)],
+                    cwd=ROOT, capture_output=True, text=True, check=False, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                archive = Path(result.stdout.strip())
+                sources = pipeline_lib.load_sources(lock)
+                files = assemble_release.archive_files(archive, int(sources["SOURCE_DATE_EPOCH"]))
+                self.assertEqual(files["BUILD-INFO.json"], approved_bytes)
+                self.assertEqual(build_info.read_bytes(), approved_bytes)
+                # Both real final jobs must retain the exact-byte guard. A
+                # semantically identical whitespace mutation must still differ.
+                workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+                self.assertIn('(unsigned / "build-info.json").read_bytes() != (signed / "BUILD-INFO.json").read_bytes()', workflow)
+                self.assertIn('(unsigned_root / "build-info.json").read_bytes() != files["BUILD-INFO.json"]', workflow)
+                self.assertNotEqual(approved_bytes + b" ", files["BUILD-INFO.json"])
+
     def test_missing_runtime_notice_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
