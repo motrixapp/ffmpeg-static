@@ -90,6 +90,21 @@ residual advisories solely for this version through 2026-10-15 UTC. The new
 decision is bound separately in the review record, conditional on every
 exact-commit CI check and unchanged signing, notarization and Environment gate.
 It is neither a vulnerability fix nor an Environment approval or public Release.
+Formal `.3` run `36831228925` passed all candidate/rebuild and secret-free
+approval checks, then failed closed on POSIX risk-recheck syntax in the native
+Windows finalizer. The run was cancelled while macOS waited for approval; no
+signing Secret or Release was reached. Candidate `.4` fixes that PowerShell
+invocation and Windows packaging's parameter name, and executes the actual
+Windows workflow risk gate with positive/expired/tampered test-only fixtures on
+both native architectures. On 2026-10-01, `agalwood` authorized corrective
+revisions until the first formal Release, in response to the disclosed `.4`
+scope and the same 42 residual advisories through 2026-10-15 UTC. The recorded
+exception is separately bound only to `.4` and its precise workflow/source
+hashes. Later revisions require new exact-scope records; new advisories,
+deadline extensions or unrelated source/Action updates require a new decision.
+This does not approve any protected Environment or bypass CI, independent
+rebuilds, signing, notarization, Ed25519 authentication or Immutable Releases.
+All three prior tags remain immutable.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -146,8 +161,8 @@ PGP verification is unchanged.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.2-motrix.3
-asset=ffmpeg-9.0.2-motrix.3-linux-x64.tar.gz
+tag=v9.0.2-motrix.4
+asset=ffmpeg-9.0.2-motrix.4-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS

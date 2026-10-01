@@ -44,7 +44,7 @@ class DependencyUpdateTests(unittest.TestCase):
         reviews.validate(self.approved_review(), self.references, self.today)
         reviews.validate_scope(self.review, ROOT / ".github/workflows", ROOT / "sources.env",
                                self.review["releaseTag"], ROOT / "security/action-reachability-review.json")
-        self.assertEqual(self.review["releaseTag"], "v9.0.2-motrix.3")
+        self.assertEqual(self.review["releaseTag"], "v9.0.2-motrix.4")
         blocked = copy.deepcopy(self.review)
         blocked["status"] = "blocked"
         with self.assertRaisesRegex(ValueError, "formal release blocked"):
@@ -208,11 +208,20 @@ class DependencyUpdateTests(unittest.TestCase):
             block = re.split(r"\n  [a-z][a-z-]+:\n", workflow.split(f"\n  {job}:\n", 1)[1], maxsplit=1)[0]
             gate = block.split("      - name: Recheck risk approval after waiting", 1)[1]
             gate = gate.split("      - name:", 1)[0]
-            for argument in ("--review security/action-risk-review.json",
-                             "--audit-report security/action-dependency-audit.json",
-                             "--workflows .github/workflows --sources sources.env",
-                             '--release-tag "$REVIEW_RELEASE_TAG"',
-                             "--assessment security/action-reachability-review.json"):
+            arguments = (
+                "'--review', 'security/action-risk-review.json'",
+                "'--audit-report', 'security/action-dependency-audit.json'",
+                "'--workflows', '.github/workflows'", "'--sources', 'sources.env'",
+                "'--release-tag', $env:REVIEW_RELEASE_TAG",
+                "'--assessment', 'security/action-reachability-review.json'",
+            ) if job == "sign-windows" else (
+                "--review security/action-risk-review.json",
+                "--audit-report security/action-dependency-audit.json",
+                "--workflows .github/workflows --sources sources.env",
+                '--release-tag "$REVIEW_RELEASE_TAG"',
+                "--assessment security/action-reachability-review.json",
+            )
+            for argument in arguments:
                 self.assertIn(argument, gate)
             self.assertIn("needs.prepare-sources.outputs.release-tag", gate)
             self.assertNotIn("continue-on-error", gate)

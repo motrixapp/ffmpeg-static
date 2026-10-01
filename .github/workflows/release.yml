@@ -1291,6 +1291,13 @@ jobs:
           & python -I -m unittest discover -s tests -p test_file_readers.py -v
           if ($LASTEXITCODE -ne 0) { throw 'native binary-reader regression failed' }
 
+      - name: Test the protected Windows release contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & python -I -m unittest discover -s tests -p test_windows_release_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'native release-contract regression failed' }
+
       - name: Download exact bound unsigned Windows payload
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -3839,15 +3846,23 @@ jobs:
           persist-credentials: false
 
       - name: Recheck risk approval after waiting and before privileged work
+        shell: pwsh
         env:
           REVIEW_RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
         run: |
-          /usr/bin/python3 -I scripts/validate_action_review.py \
-            --review security/action-risk-review.json \
-            --audit-report security/action-dependency-audit.json \
-            --workflows .github/workflows --sources sources.env \
-            --release-tag "$REVIEW_RELEASE_TAG" \
-            --assessment security/action-reachability-review.json
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $riskArguments = @(
+            '-I', 'scripts/validate_action_review.py',
+            '--review', 'security/action-risk-review.json',
+            '--audit-report', 'security/action-dependency-audit.json',
+            '--workflows', '.github/workflows',
+            '--sources', 'sources.env',
+            '--release-tag', $env:REVIEW_RELEASE_TAG,
+            '--assessment', 'security/action-reachability-review.json'
+          )
+          & python @riskArguments
+          if ($LASTEXITCODE -ne 0) { throw 'Action dependency risk review failed' }
 
       - name: Download bound unsigned Windows payload
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -4038,9 +4053,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
-          python scripts/package-artifact.py `
+          & python -I scripts/package-artifact.py `
             --target $env:TARGET `
-            --payload-dir "build/$($env:TARGET)/payload" `
+            --payload "build/$($env:TARGET)/payload" `
             --build-info "build/$($env:TARGET)/build-info.json" `
             --output-dir "build/packages/$($env:TARGET)"
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }

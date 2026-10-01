@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "status": "assessment-only",
   "reviewedAt": "2026-10-01",
-  "releaseTag": "v9.0.2-motrix.3",
+  "releaseTag": "v9.0.2-motrix.4",
   "auditReportSha256": "06e7bf28f087a2ed4ef7c4c9d244c79267b439da48924ee07081d03750cafcd1",
   "workflowSha256": {
-    ".github/workflows/ci.yml": "a05c0a615b81b3ccfd88d0f5e8c0dee08db5b185ed597a2d35bd446f89988357",
+    ".github/workflows/ci.yml": "d5ff874f7a8f902bd74a2757281e9afa0669fa731b8e9fd23fcc122fa6fe0ea5",
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "83246eb11c6a49d6726f56b32f458fcbf7e95a0b1d8461f57aafcbbbef2f9937"
+    ".github/workflows/release.yml": "0f500c14e781d4a04428cda61442991394fa4083b8ff2ddef1527b408f9bd1b3"
   },
-  "sourceLockSha256": "73214c576dfbe22e627fe25f9476c2e38a465f4e5b04c9324c1b3da5dede8e73",
+  "sourceLockSha256": "7c5a283e05f5966542ee08acaeb5521d405b78b57a85015a15eb8df1efd7a032",
   "actionReferences": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
@@ -17,7 +17,7 @@
     "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
   ],
-  "decision": "Supporting static assessment only. Authority is only the separately recorded maintainer decision in action-risk-review.json, bound to the complete exact scope and at most 14-day validity. On 2026-10-01 agalwood explicitly authorized the disclosed v9.0.2-motrix.3 scope and all 42 residual advisories through 2026-10-15 UTC; this separate single-version exception does not reuse .1/.2 approvals. Formal .2 run 36819481774 failed closed in secret-free pre-sign checks after all six candidate and four independent builds completed. The .3 scope changes BUILD_REVISION, uses binary-mode protected regular-file reads, requests deterministic linker ad-hoc signatures on both macOS architectures, and binds bounded read-only NASM executable evidence into exact x64 input/rebuild byte comparison and final verification. That evidence is never executed in signing jobs, added to their tool search path, or included in user payload archives. CI exercises real macOS baselines and Windows x64/ARM64 reader regressions; formal native approval also reruns the latter without Secrets. No Action commit, source archive/URL, toolchain, dispatch input, API binding, cache prefix, Secret surface, signing environment, or publication authority changes. All 42 same-day inventoried advisories remain, including cache extraction/service risks before validation and signature type-binding risk; no vulnerability is claimed fixed or wholly unreachable. Publication is conditional on every exact-commit CI check, size/race/hash/byte-comparison guard, platform signing/notarization, Ed25519 root, independent final verification, protected-Environment confirmation and Immutable Releases requirement. Both prior annotated tags remain immutable. This assessment itself grants no release or Environment approval.",
+  "decision": "Supporting static assessment only. Authority is only the separately recorded maintainer decision in action-risk-review.json, bound to the complete exact scope and at most 14-day validity. On 2026-10-01 agalwood authorized corrective revisions until the first formal Release succeeds in response to the disclosed .4 scope and unchanged 42 residual advisories through 2026-10-15 UTC. The current record binds only v9.0.2-motrix.4, not another tag or unknown new risk. Formal .3 run 36831228925 passed six candidate builds, four independent rebuilds, six secret-free approvals and final grants, then failed closed on POSIX syntax in the Windows PowerShell risk recheck. It was cancelled while macOS awaited protected approval; no signing Secret or Release was reached. The .4 scope changes BUILD_REVISION, uses native PowerShell argument-array invocation with explicit Python exit-code propagation, corrects Windows packaging's payload parameter, and tests the actual native Windows workflow bodies and risk command before signing. Test-only approval fixtures are confined to temporary directories, never used by the production gate, and cover blocked, expired and altered scope rejection. Existing binary-mode file readers, deterministic macOS ad-hoc signatures and bounded read-only NASM evidence remain unchanged. No Action commit, source archive/URL, toolchain, dispatch input, API binding, cache prefix, Secret surface, signing environment, or publication authority changes. All 42 same-day inventoried advisories remain, including cache extraction/service risks before validation and signature type-binding risk; no vulnerability is claimed fixed or wholly unreachable. Publication is conditional on every exact-commit CI check, size/race/hash/byte-comparison guard, independent rebuild, platform signing/notarization, Ed25519 root, independent final verification, protected-Environment confirmation and Immutable Releases requirement. All three prior tags remain immutable. New advisories, deadline extensions or unrelated source/Action updates require a new decision. This assessment itself grants no release or Environment approval.",
   "limitations": [
     "Static call-path review, not complete dynamic taint analysis, exploit testing, or proof of non-reachability.",
     "The lock inventory includes code beyond the selected entrypoint; findings are retained rather than suppressed.",

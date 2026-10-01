@@ -240,6 +240,13 @@ jobs:
           & python -I -m unittest discover -s tests -p test_file_readers.py -v
           if ($LASTEXITCODE -ne 0) { throw 'native binary-reader regression failed' }
 
+      - name: Test the protected Windows release contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & python -I -m unittest discover -s tests -p test_windows_release_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'native release-contract regression failed' }
+
       - name: Download exact unsigned Windows package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
