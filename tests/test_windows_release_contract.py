@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -79,6 +80,40 @@ class WindowsReleaseContractTests(unittest.TestCase):
         self.assertEqual(used, {"--target", "--payload", "--build-info", "--output-dir"})
         self.assertLessEqual(used, flags)
         self.assertIn("if ($LASTEXITCODE -ne 0) { throw", body)
+
+    def test_real_native_python_entrypoints_start_in_isolated_mode(self) -> None:
+        scripts = set()
+        for job in ("sign-windows", "windows-presign-native-approval", "windows-native-smoke"):
+            for _, _, body in run_steps(job_text(RELEASE, job)):
+                scripts.update(re.findall(r"python(?: -I)? (scripts/[A-Za-z0-9_-]+\.py)", body))
+        self.assertIn("scripts/package-artifact.py", scripts)
+        self.assertGreaterEqual(len(scripts), 4)
+        for script in sorted(scripts):
+            with self.subTest(script=script):
+                result = subprocess.run([sys.executable, "-I", str(ROOT / script), "--help"],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("usage:", result.stdout)
+
+    def test_real_packaging_command_runs_before_native_approval_is_uploaded(self) -> None:
+        final = next(body for name, _, body in run_steps(job_text(RELEASE, "sign-windows"))
+                     if name == "Package unchanged verified Windows binaries")
+        job = job_text(RELEASE, "windows-presign-native-approval")
+        presign = next(body for name, _, body in run_steps(job)
+                       if name == "Package exact unsigned Windows payload before approval")
+        self.assertEqual(presign, final, "exercise the exact final command, not a surrogate")
+        self.assertLess(job.index("Validate exact input and emit deterministic approval"),
+                        job.index("Package exact unsigned Windows payload before approval"))
+        self.assertLess(job.index("Package exact unsigned Windows payload before approval"),
+                        job.index("Upload native Windows pre-sign approval"))
+        ci_job = job_text(ROOT / ".github/workflows/ci.yml", "windows-native-smoke")
+        ci = next(body for name, _, body in run_steps(ci_job)
+                  if name == "Exercise exact release packaging on native Windows")
+        # Only fixtures differ; required native CI executes the exact final invocation.
+        self.assertEqual(ci[ci.index("& python -I scripts/package-artifact.py"):].rstrip("\n"),
+                         final[final.index("& python -I scripts/package-artifact.py"):].rstrip("\n"))
+        step = ci_job.split("- name: Exercise exact release packaging on native Windows", 1)[1]
+        self.assertIn("if: ${{ inputs.windows_artifact_run_id == '' }}", step)
 
     def test_native_checks_are_required_in_ci_and_secret_free_approval(self) -> None:
         if os.name == "nt":

@@ -9,10 +9,15 @@ import hashlib
 import io
 import shutil
 import stat
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
 from typing import Optional
+
+# Resolve helpers only from the protected recipe, including under python -I.
+# Never obtain executable Python modules from downloaded payload directories.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pipeline_lib import (
     MAX_LICENSE_FILE_BYTES,

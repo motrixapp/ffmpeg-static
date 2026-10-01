@@ -283,3 +283,26 @@ jobs:
             -FFmpegPath $ffmpeg `
             -FFprobePath $ffprobe `
             -WorkDir (Join-Path $extractDir 'motrix-media-smoke')
+
+      - name: Exercise exact release packaging on native Windows
+        if: ${{ inputs.windows_artifact_run_id == '' }}
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $archives = @(Get-ChildItem -LiteralPath dist -Filter '*.zip' -File)
+          if ($archives.Count -ne 1) { throw 'Expected one current CI package' }
+          $inputDir = Join-Path $env:GITHUB_WORKSPACE "build/$($env:TARGET)"
+          $payloadDir = Join-Path $inputDir 'payload'
+          New-Item -ItemType Directory -Path $inputDir -ErrorAction Stop | Out-Null
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $payloadDir
+          Copy-Item -LiteralPath (Join-Path $payloadDir 'BUILD-INFO.json') `
+            -Destination (Join-Path $inputDir 'build-info.json') -ErrorAction Stop
+          & python -I scripts/package-artifact.py `
+            --target $env:TARGET `
+            --payload "build/$($env:TARGET)/payload" `
+            --build-info "build/$($env:TARGET)/build-info.json" `
+            --output-dir "build/packages/$($env:TARGET)"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }

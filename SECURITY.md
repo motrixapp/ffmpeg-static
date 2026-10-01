@@ -105,6 +105,18 @@ deadline extensions or unrelated source/Action updates require a new decision.
 This does not approve any protected Environment or bypass CI, independent
 rebuilds, signing, notarization, Ed25519 authentication or Immutable Releases.
 All three prior tags remain immutable.
+Formal `.4` run `36840700978` passed every candidate/rebuild, secret-free approval
+and final grant, then failed closed in Windows packaging because `python -I`
+removed the script directory from the ambient module path. Its risk rechecks
+and exact-input validations passed. macOS remained at manual approval; the run
+was cancelled without signing credentials or a Release. Candidate `.5` anchors
+the packaging helper import to the protected recipe directory, tests actual
+isolated CLI entrypoints, and runs the exact real-payload packaging command in
+required native Windows CI and secret-free pre-sign approval jobs. No modules
+are imported from payload directories. The continuing maintainer authorization
+is freshly bound only to `.5`, with the same 42 advisories and 2026-10-15 UTC
+deadline; no prior hash binding or protected-Environment approval is reused.
+All four previous tags remain immutable.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -161,8 +173,8 @@ PGP verification is unchanged.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.2-motrix.4
-asset=ffmpeg-9.0.2-motrix.4-linux-x64.tar.gz
+tag=v9.0.2-motrix.5
+asset=ffmpeg-9.0.2-motrix.5-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS
