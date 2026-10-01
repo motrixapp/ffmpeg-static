@@ -280,6 +280,22 @@ residual advisories solely for this version through 2026-10-15 UTC, conditional
 on all exact-commit CI checks and unchanged protected release gates. This
 separate recorded exception neither fixes an advisory nor confirms an Environment.
 
+Formal `.3` run `36831228925` passed all six candidate builds, four independent
+rebuilds, six secret-free pre-sign approvals and final input grants. The Windows
+finalizer then failed closed because its risk recheck used POSIX shell syntax
+under PowerShell; macOS jobs were cancelled while awaiting protected approval.
+No signing credentials or Release were reached. Preserve all three immutable
+tags. Candidate `.4` uses native PowerShell argument arrays, explicitly propagates
+validator failures, corrects Windows packaging's `--payload` argument, and tests
+the actual workflow bodies on both native Windows architectures before signing.
+On 2026-10-01, `agalwood` authorized corrective revisions until the first formal
+Release succeeds, in response to the disclosed `.4` scope and unchanged 42
+residual advisories. The current record binds only `.4` and its exact new hashes,
+with the existing 2026-10-15 UTC deadline. Any further revision needs its own
+scope record; this authorization does not cover new advisories, expiry extensions,
+unrelated source/Action updates, or protected-Environment approval. All nine
+exact-commit checks, independent rebuilds, signing and publication gates remain.
+
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42
 inventoried advisories. It records input limitations and residual risk, including
