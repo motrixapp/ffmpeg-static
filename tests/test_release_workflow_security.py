@@ -550,12 +550,12 @@ run_clean /usr/bin/env | /usr/bin/grep -q '^MACOSX_DEPLOYMENT_TARGET=12.0$'
         import json
 
         security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
-        self.assertIn("https://motrix.app/security/ffmpeg/", security)
-        self.assertIn("https://motrix.app/zh/security/ffmpeg/", security)
+        self.assertIn("https://motrix.app/manual/ffmpeg/", security)
+        self.assertIn("https://motrix.app/zh/manual/ffmpeg/", security)
         for name in ("README.md", "README.zh-CN.md", "CONTRIBUTING.md"):
             self.assertRegex(
                 (ROOT / name).read_text(encoding="utf-8"),
-                r"https://motrix\.app/(?:zh/)?security/ffmpeg/",
+                r"https://motrix\.app/(?:zh/)?manual/ffmpeg/",
             )
         report = (ROOT / "security/action-dependency-audit.json").read_bytes()
         review = json.loads((ROOT / "security/action-risk-review.json").read_bytes())

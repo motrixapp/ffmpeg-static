@@ -69,7 +69,7 @@ SHA-256 match detects corruption but does not, by itself, prove who published
 the file. The signed manifest authenticates the hashes with a public key pinned
 in Motrix. For project signature, Release, attestation, tag, and macOS verification, follow [SECURITY.md](SECURITY.md#verify-a-download).
 
-The independently published [Motrix FFmpeg signing key](https://motrix.app/security/ffmpeg/)
+The independently published [Motrix FFmpeg signing key](https://motrix.app/manual/ffmpeg/)
 provides the public key, key ID, and rotation history. Do not trust a replacement
 key merely because it arrives with an archive.
 
