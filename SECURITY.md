@@ -59,6 +59,12 @@ unreachable; required Environment confirmations, signing, notarization, complete
 verification and immutable publishing remain mandatory. Other releases remain
 blocked without a new approval. The scope is enforced by
 [`security/action-risk-review.json`](security/action-risk-review.json).
+Formal run `36810616718` for that tag failed closed before source preparation:
+the risk gate referenced `release-tag` instead of the emitted `release_tag`.
+The immutable `.1` tag is retained; no public Release was created. Corrected
+candidate `v9.0.2-motrix.2` only fixes that output reference and advances the
+build revision. Its exception remains blocked pending explicit scope approval;
+the previous approval cannot be reused automatically.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -115,7 +121,7 @@ PGP verification is unchanged.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.2-motrix.1
+tag=v9.0.2-motrix.2
 asset=ffmpeg-9.0.2-motrix.1-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"

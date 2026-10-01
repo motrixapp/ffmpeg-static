@@ -250,6 +250,11 @@ risks solely for `v9.0.2-motrix.1` through 2026-10-15. The refreshed inventory
 from run `36807648066` is unchanged. This is a short-lived exception, not a
 vulnerability fix, unrestricted permission for future releases, or confirmation
 of any signing Environment.
+That run (`36810616718`) failed closed on an incorrect step-output reference
+before source preparation. Preserve its immutable tag, correct the reference,
+and advance to `v9.0.2-motrix.2`; that candidate requires explicit approval of
+the new exact scope before formal publication. Build sources, toolchains,
+Action references and the advisory inventory are unchanged.
 
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42
