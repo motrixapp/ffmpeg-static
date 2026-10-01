@@ -232,21 +232,31 @@ complete. Neither is a clean security result. Optional runtime packages can
 produce conservative findings; investigate the Action's bundled code and this
 workflow's inputs before making any reachability claim.
 
-Formal publication is intentionally blocked in `security/action-risk-review.json`.
+Formal publication is controlled by `security/action-risk-review.json`.
 Do not set it to approved just to make a workflow green. Refresh the complete
 evidence on the review date, assess every advisory (including remaining
 High/Critical items), bind its SHA-256 and every exact Action reference, and
 record the explicit maintainer decision in a protected-main change. If no
 adequate fix or defensible, specifically reviewed exception exists, keep the
-hold. Approval validity is at most 14 days; a changed Action commit or evidence
-invalidates it. Existing signing-environment approvals remain required.
+hold. Approval validity is at most 14 days; a changed Action commit, release tag,
+source lock, workflow, assessment, or advisory evidence invalidates it. Schema 2
+checks the exact scope, not merely the Action references. Recheck the gate
+after protected-environment waits, before signing/attestation/publishing work,
+and immediately before making a draft public; the UTC expiry must still hold.
+Existing signing-environment approvals remain required.
+
+On 2026-10-01, maintainer `agalwood` explicitly accepted the documented residual
+risks solely for `v9.0.2-motrix.1` through 2026-10-15. The refreshed inventory
+from run `36807648066` is unchanged. This is a short-lived exception, not a
+vulnerability fix, unrestricted permission for future releases, or confirmation
+of any signing Environment.
 
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42
 inventoried advisories. It records input limitations and residual risk, including
 active Azure XML processing and Sigstore DSSE signing code. Static inspection is
-not proof of non-reachability or a fix. Its pending-maintainer status neither
-approves an exception nor changes the formal publication hold. A maintainer
+not proof of non-reachability or a fix. Its assessment-only status neither
+approves an exception nor changes the formal publication gate. A maintainer
 considering a short-lived exception must explicitly accept these residual
 risks in a protected-main change; merging the assessment alone is not approval.
 

@@ -45,20 +45,29 @@ excluded inventory is recorded in
 It is a package inventory, not a claim that every advisory is exploitable in
 this workflow or included in the Action's executed bundle.
 
-The refreshed [audit run](https://github.com/motrixapp/ffmpeg-static/actions/runs/36794988412)
+The refreshed [audit run](https://github.com/motrixapp/ffmpeg-static/actions/runs/36807648066)
 inventories 265 runtime package versions and 42 distinct advisories: 1 Critical,
 18 High, 19 Medium, and 4 Low. Its complete report SHA-256 is
-`5a7e3a75060254ad27f1036b74a8f490d05ece6c9f0a72c9157f09cff3dad12e`.
+`06e7bf28f087a2ed4ef7c4c9d244c79267b439da48924ee07081d03750cafcd1`.
 The findings are unchanged from the preceding scan. Publishing the public key
 does not approve these risks or lift the hold.
 
-Formal releases are currently **blocked** by
+On 2026-10-01, explicit maintainer approval by `agalwood` accepted the documented
+residual risks solely for `v9.0.2-motrix.1`, expiring on 2026-10-15. The decision
+does not claim the vulnerabilities are fixed or every vulnerable function is
+unreachable; required Environment confirmations, signing, notarization, complete
+verification and immutable publishing remain mandatory. Other releases remain
+blocked without a new approval. The scope is enforced by
 [`security/action-risk-review.json`](security/action-risk-review.json).
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
 advisory evidence, every inventoried advisory, and a same-day refreshed scan.
-Reviews expire after at most 14 days. No dispatch input or environment variable
+Schema 2 also binds the exact release tag, source lock, all workflow bytes, and
+complete call-path assessment; any change invalidates the recorded scope.
+Reviews expire after at most 14 days. Protected jobs recheck the scope and UTC
+expiry after environment waits, and the publisher rechecks immediately before
+turning a draft public, including after uploads. No dispatch input or environment variable
 can override the gate. Unsigned CI/test builds remain available for validation,
 not distribution. Do not interpret this hold as a new released binary.
 

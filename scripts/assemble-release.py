@@ -122,6 +122,7 @@ BUILD_PIPELINE_FILES = (
     "scripts/validate_action_review.py",
     "scripts/validate_release_tag.py",
     "security/action-risk-review.json",
+    "security/action-reachability-review.json",
     "security/action-dependency-audit.json",
 )
 

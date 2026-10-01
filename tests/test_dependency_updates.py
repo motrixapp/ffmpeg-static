@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -33,16 +34,23 @@ class DependencyUpdateTests(unittest.TestCase):
         result["decision"] = "Test fixture only, not a production approval."
         return result
 
-    def test_checked_in_release_review_is_blocked(self) -> None:
+    def test_recorded_approval_and_blocked_fixture(self) -> None:
+        reviews.validate(self.review, self.references, self.today)
+        reviews.validate_scope(self.review, ROOT / ".github/workflows", ROOT / "sources.env",
+                               self.review["releaseTag"], ROOT / "security/action-reachability-review.json")
+        self.assertEqual(self.review["releaseTag"], "v9.0.2-motrix.1")
+        self.assertEqual(self.review["reviewedBy"], "agalwood")
+        blocked = copy.deepcopy(self.review)
+        blocked["status"] = "blocked"
         with self.assertRaisesRegex(ValueError, "formal release blocked"):
-            reviews.validate(self.review, self.references, self.today)
+            reviews.validate(blocked, self.references, self.today)
 
     def test_call_path_assessment_covers_every_advisory_and_exact_input(self) -> None:
         evidence = json.loads((ROOT / "security/action-reachability-review.json").read_text())
         report_data = (ROOT / "security/action-dependency-audit.json").read_bytes()
         report = json.loads(report_data)
         self.assertEqual(evidence["schemaVersion"], 1)
-        self.assertEqual(evidence["status"], "pending-maintainer-decision")
+        self.assertEqual(evidence["status"], "assessment-only")
         self.assertEqual(evidence["reviewedAt"], self.review["reviewedAt"])
         self.assertEqual(evidence["auditReportSha256"], hashlib.sha256(report_data).hexdigest())
         self.assertEqual(evidence["actionReferences"], self.review["actionReferences"])
@@ -78,8 +86,46 @@ class DependencyUpdateTests(unittest.TestCase):
             for field in ("assessment", "controls", "residualRisk", "evidence"):
                 self.assertTrue(group[field])
         self.assertIn("not complete dynamic", evidence["limitations"][0])
-        self.assertIn("Keep action-risk-review.json blocked", evidence["decision"])
-        self.assertEqual(self.review["status"], "blocked")
+        self.assertIn("Authority is only the separately recorded", evidence["decision"])
+        self.assertEqual(self.review["status"], "approved")
+        self.assertEqual(self.review["assessmentSha256"], hashlib.sha256(
+            (ROOT / "security/action-reachability-review.json").read_bytes()).hexdigest())
+
+    def test_approval_cannot_be_reused_for_another_tag_lock_workflow_or_assessment(self) -> None:
+        def check(review: dict, tag: str | None = None, sources: Path | None = None,
+                  assessment: Path | None = None) -> None:
+            reviews.validate_scope(review, ROOT / ".github/workflows", sources or ROOT / "sources.env",
+                                   tag or review["releaseTag"], assessment or ROOT / "security/action-reachability-review.json")
+
+        with self.assertRaisesRegex(ValueError, "different release tag"):
+            check(self.review, "v9.0.2-motrix.2")
+        for field, value, error in (
+            ("sourceLockSha256", "0" * 64, "source lock differs"),
+            ("assessmentSha256", "0" * 64, "assessment differs"),
+            ("workflowSha256", {}, "workflow inputs differ"),
+        ):
+            review = copy.deepcopy(self.review)
+            review[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, error):
+                check(review)
+        with tempfile.TemporaryDirectory() as directory:
+            sources = Path(directory) / "sources.env"
+            sources.write_bytes((ROOT / "sources.env").read_bytes() + b"\n# scope probe\n")
+            with self.assertRaisesRegex(ValueError, "source lock differs"):
+                check(self.review, sources=sources)
+            assessment = Path(directory) / "assessment.json"
+            data = (ROOT / "security/action-reachability-review.json").read_bytes()
+            assessment.write_bytes(data + b" ")
+            with self.assertRaisesRegex(ValueError, "assessment differs"):
+                check(self.review, assessment=assessment)
+            obj = json.loads(data)
+            obj["advisories"] = obj["advisories"][:-1]
+            changed = json.dumps(obj).encode()
+            assessment.write_bytes(changed)
+            review = copy.deepcopy(self.review)
+            review["assessmentSha256"] = hashlib.sha256(changed).hexdigest()
+            with self.assertRaisesRegex(ValueError, "every approved advisory"):
+                check(review, assessment=assessment)
 
     def test_review_binds_exact_actions_and_fresh_dates(self) -> None:
         review = self.approved_review()
@@ -93,13 +139,16 @@ class DependencyUpdateTests(unittest.TestCase):
 
     def test_review_fails_closed_on_tampering(self) -> None:
         mutations = (
-            {"schemaVersion": True}, {"schemaVersion": 2}, {"status": True},
+            {"schemaVersion": True}, {"schemaVersion": 1}, {"schemaVersion": 3}, {"status": True},
             {"auditReportSha256": "not-a-hash"},
             {"status": "Approved"}, {"reviewedBy": " "}, {"decision": ""},
             {"validUntil": "2027-01-01"}, {"reviewedAt": "20260930"},
             {"actionReferences": self.review["actionReferences"] * 2},
             {"advisories": ["not-an-advisory"]}, {"advisories": [True]},
             {"advisories": self.review["advisories"] * 2}, {"extra": "bypass"},
+            {"reviewedBy": "pending-maintainer-review"}, {"releaseTag": "latest"},
+            {"sourceLockSha256": "bad"}, {"assessmentSha256": "bad"},
+            {"workflowSha256": {}}, {"workflowSha256": {"../ci.yml": "0" * 64}},
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
@@ -128,11 +177,42 @@ class DependencyUpdateTests(unittest.TestCase):
         self.assertIn("if: ${{ steps.release.outputs.formal_release == 'true' }}", gate)
         self.assertIn("--review security/action-risk-review.json", gate)
         self.assertIn("--workflows .github/workflows", gate)
+        self.assertIn("--sources release-subject/sources.env", gate)
+        self.assertIn('--release-tag "$REVIEW_RELEASE_TAG"', gate)
+        self.assertIn("--assessment security/action-reachability-review.json", gate)
         self.assertNotIn("continue-on-error", gate)
         gate_index = workflow.index("scripts/validate_action_review.py")
         for marker in ("Bind requested remote tag", "uses: actions/cache@", "environment: macos-release-signing",
                        "environment: release-manifest-signing", "environment: github-release"):
             self.assertLess(gate_index, workflow.index(marker))
+
+    def test_risk_approval_is_rechecked_after_waits_and_at_publication(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        for job in ("sign-and-notarize-macos", "sign-manifest", "attest", "publish", "sign-windows"):
+            # Only split at the next top-level job, not indented steps.
+            block = re.split(r"\n  [a-z][a-z-]+:\n", workflow.split(f"\n  {job}:\n", 1)[1], maxsplit=1)[0]
+            gate = block.split("      - name: Recheck risk approval after waiting", 1)[1]
+            gate = gate.split("      - name:", 1)[0]
+            for argument in ("--review security/action-risk-review.json",
+                             "--audit-report security/action-dependency-audit.json",
+                             "--workflows .github/workflows --sources sources.env",
+                             '--release-tag "$REVIEW_RELEASE_TAG"',
+                             "--assessment security/action-reachability-review.json"):
+                self.assertIn(argument, gate)
+            self.assertIn("needs.prepare-sources.outputs.release-tag", gate)
+            self.assertNotIn("continue-on-error", gate)
+            gate_index = block.index("scripts/validate_action_review.py")
+            self.assertLess(block.index("uses: actions/checkout@"), gate_index)
+            self.assertLess(gate_index, block.index("uses: actions/download-artifact@"))
+            if "${{ secrets." in block:
+                self.assertLess(gate_index, block.index("${{ secrets."))
+        publish = workflow.split("\n  publish:\n", 1)[1].split("\n  sign-windows:\n", 1)[0]
+        final_gate = publish.index("# Uploads and verification can cross")
+        self.assertLess(publish.index('for asset_path in "${missing_assets[@]}"'), final_gate)
+        boundary = publish.index('release_api --method PATCH "$release_endpoint"', final_gate)
+        self.assertIn("scripts/validate_action_review.py", publish[final_gate:boundary])
+        self.assertIn('--release-tag "$RELEASE_TAG"', publish[final_gate:boundary])
+        self.assertIn("-F draft=false", publish[boundary:])
 
     def test_runtime_inventory_keeps_nested_versions_but_excludes_dev_only(self) -> None:
         lock = {"lockfileVersion": 3, "packages": {

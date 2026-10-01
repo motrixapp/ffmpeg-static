@@ -113,11 +113,16 @@ jobs:
 
       - name: Require a current review of Action dependency risks before formal release
         if: ${{ steps.release.outputs.formal_release == 'true' }}
+        env:
+          REVIEW_RELEASE_TAG: ${{ steps.release.outputs.release-tag }}
         run: |
           /usr/bin/python3 -I scripts/validate_action_review.py \
             --review security/action-risk-review.json \
             --audit-report security/action-dependency-audit.json \
-            --workflows .github/workflows
+            --workflows .github/workflows \
+            --sources release-subject/sources.env \
+            --release-tag "$REVIEW_RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
 
       - name: Bind requested remote tag to the subject commit
         id: trust
@@ -278,6 +283,7 @@ jobs:
           install -m 0644 patches/musl-CVE-2026-6042.patch "$source_dir/patches/"
           install -m 0644 patches/musl-CVE-2026-40200.patch "$source_dir/patches/"
           install -m 0644 security/action-risk-review.json "$source_dir/security/"
+          install -m 0644 security/action-reachability-review.json "$source_dir/security/"
           install -m 0644 security/action-dependency-audit.json "$source_dir/security/"
           for script in \
             apply_musl_patches.py \
@@ -1791,6 +1797,17 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
+      - name: Recheck risk approval after waiting and before privileged work
+        env:
+          REVIEW_RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+        run: |
+          /usr/bin/python3 -I scripts/validate_action_review.py \
+            --review security/action-risk-review.json \
+            --audit-report security/action-dependency-audit.json \
+            --workflows .github/workflows --sources sources.env \
+            --release-tag "$REVIEW_RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
+
       - name: Download bound unsigned macOS payload
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -3039,6 +3056,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Recheck risk approval after waiting and before privileged work
+        env:
+          REVIEW_RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+        run: |
+          /usr/bin/python3 -I scripts/validate_action_review.py \
+            --review security/action-risk-review.json \
+            --audit-report security/action-dependency-audit.json \
+            --workflows .github/workflows --sources sources.env \
+            --release-tag "$REVIEW_RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
       - name: Download exact independently verified assembled release
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -3135,18 +3162,29 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Check out protected attestation verification code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Recheck risk approval after waiting and before privileged work
+        env:
+          REVIEW_RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+        run: |
+          /usr/bin/python3 -I scripts/validate_action_review.py \
+            --review security/action-risk-review.json \
+            --audit-report security/action-dependency-audit.json \
+            --workflows .github/workflows --sources sources.env \
+            --release-tag "$REVIEW_RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
+
       - name: Download complete release set by bound ID
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           artifact-ids: ${{ needs.sign-manifest.outputs.artifact-id }}
           path: dist
           digest-mismatch: error
-
-      - name: Check out protected attestation verification code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
 
       - name: Verify pinned manifest signature before external publication
         env:
@@ -3220,6 +3258,17 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Recheck risk approval after waiting and before privileged work
+        env:
+          REVIEW_RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+        run: |
+          /usr/bin/python3 -I scripts/validate_action_review.py \
+            --review security/action-risk-review.json \
+            --audit-report security/action-dependency-audit.json \
+            --workflows .github/workflows --sources sources.env \
+            --release-tag "$REVIEW_RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
 
       - name: Download complete release set by bound ID
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -3643,6 +3692,14 @@ jobs:
           verify_remote_tag
           verify_remote_assets \
             "$release_endpoint" "$release_id" draft "$release_body"
+          # Uploads and verification can cross the approval's UTC expiry date.
+          # Recheck immediately before making the draft publicly downloadable.
+          /usr/bin/python3 -I scripts/validate_action_review.py \
+            --review security/action-risk-review.json \
+            --audit-report security/action-dependency-audit.json \
+            --workflows .github/workflows --sources sources.env \
+            --release-tag "$RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
           release_api --method PATCH "$release_endpoint" \
             -f "tag_name=$RELEASE_TAG" \
             -f "name=FFmpeg ${RELEASE_VERSION} for Motrix" \
@@ -3743,6 +3800,17 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Recheck risk approval after waiting and before privileged work
+        env:
+          REVIEW_RELEASE_TAG: ${{ needs.prepare-sources.outputs.release-tag }}
+        run: |
+          /usr/bin/python3 -I scripts/validate_action_review.py \
+            --review security/action-risk-review.json \
+            --audit-report security/action-dependency-audit.json \
+            --workflows .github/workflows --sources sources.env \
+            --release-tag "$REVIEW_RELEASE_TAG" \
+            --assessment security/action-reachability-review.json
 
       - name: Download bound unsigned Windows payload
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

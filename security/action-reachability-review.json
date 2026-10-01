@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "status": "pending-maintainer-decision",
+  "status": "assessment-only",
   "reviewedAt": "2026-10-01",
   "releaseTag": "v9.0.2-motrix.1",
-  "auditReportSha256": "5a7e3a75060254ad27f1036b74a8f490d05ece6c9f0a72c9157f09cff3dad12e",
+  "auditReportSha256": "06e7bf28f087a2ed4ef7c4c9d244c79267b439da48924ee07081d03750cafcd1",
   "workflowSha256": {
     ".github/workflows/ci.yml": "d29f9b1055282215f0112a0659f95e1b52091fae38526fcd406e1e9ab0da3712",
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "8718d4a313de75414e4119baa02a2e7f0a7674e651791de50b489728f3a0f9eb"
+    ".github/workflows/release.yml": "e2af32abd8e8cd08b5997f2dd5800464d808281a2f95974b4271ce2f348316ce"
   },
   "sourceLockSha256": "a5a5e929ad59d511a6e16a51a93956920640d08d49b246094a9e23d61302476e",
   "actionReferences": [
@@ -17,7 +17,7 @@
     "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
   ],
-  "decision": "Not a risk acceptance. Keep action-risk-review.json blocked. If the maintainer considers an exception, obtain explicit approval of every residual risk, retain exact Action/workflow/input scope and a maximum 14-day expiry, then record the decision in a protected-main PR. Environment confirmations remain mandatory.",
+  "decision": "Supporting static assessment only. Authority is only the separately recorded maintainer decision in action-risk-review.json, bound to this assessment hash, exact release tag, source lock, workflow inputs, full advisory report and Action references, with at most 14-day validity. The maintainer explicitly accepted the recorded risks on 2026-10-01. Scope-guard and assessment-publication changes do not add an Action or external input path. Environment confirmations remain mandatory.",
   "limitations": [
     "Static call-path review, not complete dynamic taint analysis, exploit testing, or proof of non-reachability.",
     "The lock inventory includes code beyond the selected entrypoint; findings are retained rather than suppressed.",
