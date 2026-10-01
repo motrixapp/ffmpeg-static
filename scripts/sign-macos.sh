@@ -77,7 +77,25 @@ cleanup() {
 trap cleanup EXIT
 
 printf '%s' "$MAC_CERTS" | "$isolated_python" -I -c \
-  'import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.buffer.read(), validate=True))' \
+  '
+import base64
+import binascii
+import sys
+
+# Accept conventional wrapped Base64, not arbitrary discarded characters.
+# GitHub Secrets are smaller than this raw-input bound, including whitespace.
+raw = sys.stdin.buffer.read(65537)
+encoded = raw.translate(None, b" \t\r\n")
+if len(raw) > 65536 or not encoded:
+    raise SystemExit("invalid MAC_CERTS Base64 encoding or size")
+try:
+    decoded = base64.b64decode(encoded, validate=True)
+except binascii.Error:
+    raise SystemExit("invalid MAC_CERTS Base64 encoding or size") from None
+if not decoded or base64.b64encode(decoded) != encoded:
+    raise SystemExit("invalid MAC_CERTS Base64 encoding or size")
+sys.stdout.buffer.write(decoded)
+' \
   >"$certificate"
 unset MAC_CERTS
 chmod 600 "$certificate"
