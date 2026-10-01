@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "status": "blocked",
+  "status": "approved",
   "reviewedAt": "2026-10-01",
   "validUntil": "2026-10-15",
-  "reviewedBy": "pending-maintainer-review",
-  "decision": "Candidate v9.0.2-motrix.2 remains blocked pending explicit maintainer approval of the limited risk exception for this new scope. The prior approval solely for v9.0.2-motrix.1 is not reusable: formal run 36810616718 failed closed because the risk gate referenced a nonexistent step output. The v9.0.2-motrix.1 annotated tag remains immutable and has no public Release. This candidate corrects release_tag propagation, increments BUILD_REVISION, and handles SourceForge HTTP 522 via bounded same-URL retries and target/runner-OS-scoped source-download cache restoration. Restored files are reauthenticated against current pins before compilation; no compiled or signing inputs are cached. Locked source archives and URLs, toolchains, official Action references, and all 42 recorded residual dependency risks are unchanged. Audit 36807648066 is the same-day complete inventory. No vulnerability is claimed fixed or wholly unreachable, including cache service/extraction risks before validation. Preserve all signing, notarization, independent verification, Immutable Releases and Environment confirmations. Any approval must bind this exact tag, source lock, workflow, assessment and advisory evidence, expiring no later than 2026-10-15.",
+  "reviewedBy": "agalwood",
+  "decision": "On 2026-10-01 agalwood explicitly authorized continuing after the replacement question disclosed the full v9.0.2-motrix.2 scope and all 42 residual advisories (1 Critical, 18 High, 19 Medium, 4 Low). Record a limited exception solely for this exact release tag and bound source lock, workflow, static assessment, full advisory report and immutable official Action commits, expiring on 2026-10-15 UTC. The approved scope corrects release_tag propagation, increments BUILD_REVISION, and handles SourceForge HTTP 522 via bounded same-URL retries and target/runner-OS-scoped source-download cache restoration. CI run 36812820986 passed all nine required checks for that implementation before this decision. Restored files are reauthenticated against current pins before compilation; no compiled or signing inputs are cached. Locked source archives and URLs, toolchains, Action references, and all inventoried residual risks are unchanged. Audit 36807648066 is the same-day complete inventory. No vulnerability is claimed fixed or wholly unreachable, including cache service/extraction risks before validation and the signature type-binding advisory. The previous v9.0.2-motrix.1 exception is not reused and its annotated tag remains immutable with no public Release. Preserve every signing, notarization, independent-verification, Immutable Releases and protected-Environment confirmation gate. This authorization is neither an Environment approval nor an exception for another tag, changed inputs, new advisories, or publication beyond the deadline.",
   "actionReferences": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
@@ -64,5 +64,5 @@
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
     ".github/workflows/release.yml": "c9cc3fe134eca3d67bc30893f01e7d01cd3f044a7509b65ad722c942887ecdd6"
   },
-  "assessmentSha256": "d52fcf91149beb97f22ed0376f2ac57c96fcf0095126a5447c85e0826a1fda80"
+  "assessmentSha256": "5125e2d4c4b832cad353264694d864e1555937ef0fea029e2e81ed32c5a6e260"
 }
