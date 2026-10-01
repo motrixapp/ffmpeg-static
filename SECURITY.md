@@ -133,6 +133,29 @@ authorization is freshly bound only to `.6`, with the same 42 advisories and
 2026-10-15 UTC deadline; the `.5` Environment approval does not authorize `.6`.
 All five earlier tags remain immutable. New advisories, expiry extensions and
 unrelated source/Action changes still require a new human decision.
+Formal `.6` run `36858422887` passed all 22 preceding jobs, including both Windows
+finalizers, then failed at `codesign` identity lookup on both macOS architectures
+after human Environment confirmation. The certificate decoder, PKCS#12 import
+and unique valid Developer ID/Team checks had passed; no successful signature,
+notarization or public Release was created. Re-uploading canonical Base64 and
+rerunning the same commit produced the same failure. The signing script omitted
+the temporary keychain from the user search list; `--keychain` alone does not
+replace that list for signing and chain lookup. Candidate `.7` snapshots the
+original list before keychain creation, registers the owned temporary keychain
+alongside preserved entries, and restores the original list before deleting it
+on every exit. Failed restoration or deletion cannot report success. Bounded
+inventory parsing preserves literal paths without evaluation, including spaces.
+Public fake fixtures execute the full production script and verify success,
+each setup/signing failure, create-keychain side effects, empty inventories,
+literal paths and cleanup errors; no real keychain or credential is used in
+these tests. Both native macOS CI and secret-free pre-sign jobs run them. The
+actual Developer ID signature still requires a protected formal run. Certificate
+pins, SHA-1 identity selection, explicit `--keychain`, nonextractable keys,
+codesign-only access, hardened runtime and notarization stay unchanged. No
+default keychain, trust store, Action commit, source archive or toolchain changes.
+The continuing authorization is freshly bound only to `.7`, with the same 42
+advisories and 2026-10-15 UTC deadline; no prior Environment approval is reused.
+All six earlier annotated tags remain immutable.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -189,8 +212,8 @@ PGP verification is unchanged.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.2-motrix.6
-asset=ffmpeg-9.0.2-motrix.6-linux-x64.tar.gz
+tag=v9.0.2-motrix.7
+asset=ffmpeg-9.0.2-motrix.7-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS

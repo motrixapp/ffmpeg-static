@@ -65,16 +65,72 @@ done
 }
 mkdir -p -- "$facts_dir"
 
+umask 077
 signing_dir=$(mktemp -d)
 keychain="$signing_dir/motrix-ffmpeg-signing.keychain-db"
 certificate="$signing_dir/developer-id.p12"
-keychain_password=$(openssl rand -hex 24)
+original_keychains=()
+keychain_mutated=0
 
 cleanup() {
-  security delete-keychain "$keychain" >/dev/null 2>&1 || true
-  rm -rf "$signing_dir"
+  local status=$?
+  trap - EXIT
+  if [[ "$keychain_mutated" -eq 1 ]]; then
+    # create-keychain can itself change the search list. Restore the snapshot
+    # on every exit, including import/signing failures, before deleting ours.
+    if [[ ${#original_keychains[@]} -gt 0 ]]; then
+      if ! security list-keychains -d user -s "${original_keychains[@]}" >/dev/null 2>&1; then
+        echo "could not restore the original user keychain search list" >&2
+        status=1
+      fi
+    elif ! security list-keychains -d user -s >/dev/null 2>&1; then
+      echo "could not restore the original empty user keychain search list" >&2
+      status=1
+    fi
+    if ! security delete-keychain "$keychain" >/dev/null 2>&1; then
+      echo "could not delete the temporary signing keychain" >&2
+      status=1
+    fi
+  fi
+  if ! rm -rf -- "$signing_dir"; then
+    echo "could not remove temporary signing material" >&2
+    status=1
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
+chmod 700 "$signing_dir"
+keychain_password=$(openssl rand -hex 24)
+
+# codesign's --keychain restricts identity selection, but does not replace the
+# user search list needed for signing identities and certificate-chain lookup.
+# Capture BEFORE create-keychain, preserve order/spaces verbatim, never eval
+# security output, and fail before any mutation if the inventory is malformed.
+security list-keychains -d user >"$signing_dir/original-keychains.txt"
+"$isolated_python" -I -c '
+import sys
+
+raw = sys.stdin.buffer.read(65537)
+if len(raw) > 65536 or b"\x00" in raw:
+    raise SystemExit("invalid user keychain search list")
+paths = []
+for line in raw.split(b"\n"):
+    line = line.strip(b" \t")
+    if not line:
+        continue
+    if not (line.startswith(b"\"") and line.endswith(b"\"")):
+        raise SystemExit("invalid user keychain search list")
+    path = line[1:-1]
+    if (not path.startswith(b"/") or len(path) > 4096
+            or any(byte < 32 or byte == 127 for byte in path)
+            or path in paths or len(paths) >= 256):
+        raise SystemExit("invalid user keychain search list")
+    paths.append(path)
+sys.stdout.buffer.write(b"".join(path + b"\x00" for path in paths))
+' <"$signing_dir/original-keychains.txt" >"$signing_dir/original-keychains.nul"
+while IFS= read -r -d '' original_keychain; do
+  original_keychains+=("$original_keychain")
+done <"$signing_dir/original-keychains.nul"
 
 printf '%s' "$MAC_CERTS" | "$isolated_python" -I -c \
   '
@@ -100,6 +156,7 @@ sys.stdout.buffer.write(decoded)
 unset MAC_CERTS
 chmod 600 "$certificate"
 
+keychain_mutated=1
 security create-keychain -p "$keychain_password" "$keychain"
 security set-keychain-settings -lut 3600 "$keychain"
 security unlock-keychain -p "$keychain_password" "$keychain"
@@ -115,6 +172,12 @@ security set-key-partition-list \
   -s \
   -k "$keychain_password" \
   "$keychain" >/dev/null
+
+if [[ ${#original_keychains[@]} -gt 0 ]]; then
+  security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
+else
+  security list-keychains -d user -s "$keychain"
+fi
 
 identities=$(security find-identity -v -p codesigning "$keychain" |
   awk '/Developer ID Application:/ { print $2 }')
