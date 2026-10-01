@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -184,6 +185,34 @@ class DependencyUpdateTests(unittest.TestCase):
         for marker in ("Bind requested remote tag", "uses: actions/cache@", "environment: macos-release-signing",
                        "environment: release-manifest-signing", "environment: github-release"):
             self.assertLess(gate_index, workflow.index(marker))
+
+    def test_risk_approval_is_rechecked_after_waits_and_at_publication(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        for job in ("sign-and-notarize-macos", "sign-manifest", "attest", "publish", "sign-windows"):
+            # Only split at the next top-level job, not indented steps.
+            block = re.split(r"\n  [a-z][a-z-]+:\n", workflow.split(f"\n  {job}:\n", 1)[1], maxsplit=1)[0]
+            gate = block.split("      - name: Recheck risk approval after waiting", 1)[1]
+            gate = gate.split("      - name:", 1)[0]
+            for argument in ("--review security/action-risk-review.json",
+                             "--audit-report security/action-dependency-audit.json",
+                             "--workflows .github/workflows --sources sources.env",
+                             '--release-tag "$REVIEW_RELEASE_TAG"',
+                             "--assessment security/action-reachability-review.json"):
+                self.assertIn(argument, gate)
+            self.assertIn("needs.prepare-sources.outputs.release-tag", gate)
+            self.assertNotIn("continue-on-error", gate)
+            gate_index = block.index("scripts/validate_action_review.py")
+            self.assertLess(block.index("uses: actions/checkout@"), gate_index)
+            self.assertLess(gate_index, block.index("uses: actions/download-artifact@"))
+            if "${{ secrets." in block:
+                self.assertLess(gate_index, block.index("${{ secrets."))
+        publish = workflow.split("\n  publish:\n", 1)[1].split("\n  sign-windows:\n", 1)[0]
+        final_gate = publish.index("# Uploads and verification can cross")
+        self.assertLess(publish.index('for asset_path in "${missing_assets[@]}"'), final_gate)
+        boundary = publish.index('release_api --method PATCH "$release_endpoint"', final_gate)
+        self.assertIn("scripts/validate_action_review.py", publish[final_gate:boundary])
+        self.assertIn('--release-tag "$RELEASE_TAG"', publish[final_gate:boundary])
+        self.assertIn("-F draft=false", publish[boundary:])
 
     def test_runtime_inventory_keeps_nested_versions_but_excludes_dev_only(self) -> None:
         lock = {"lockfileVersion": 3, "packages": {

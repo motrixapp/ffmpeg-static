@@ -65,7 +65,9 @@ An approval must bind every exact Action commit, the SHA-256 of the complete
 advisory evidence, every inventoried advisory, and a same-day refreshed scan.
 Schema 2 also binds the exact release tag, source lock, all workflow bytes, and
 complete call-path assessment; any change invalidates the recorded scope.
-Reviews expire after at most 14 days. No dispatch input or environment variable
+Reviews expire after at most 14 days. Protected jobs recheck the scope and UTC
+expiry after environment waits, and the publisher rechecks immediately before
+turning a draft public, including after uploads. No dispatch input or environment variable
 can override the gate. Unsigned CI/test builds remain available for validation,
 not distribution. Do not interpret this hold as a new released binary.
 

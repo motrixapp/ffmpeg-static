@@ -240,8 +240,10 @@ record the explicit maintainer decision in a protected-main change. If no
 adequate fix or defensible, specifically reviewed exception exists, keep the
 hold. Approval validity is at most 14 days; a changed Action commit, release tag,
 source lock, workflow, assessment, or advisory evidence invalidates it. Schema 2
-checks the exact scope, not merely the Action references. Existing
-signing-environment approvals remain required.
+checks the exact scope, not merely the Action references. Recheck the gate
+after protected-environment waits, before signing/attestation/publishing work,
+and immediately before making a draft public; the UTC expiry must still hold.
+Existing signing-environment approvals remain required.
 
 On 2026-10-01, maintainer `agalwood` explicitly accepted the documented residual
 risks solely for `v9.0.2-motrix.1` through 2026-10-15. The refreshed inventory

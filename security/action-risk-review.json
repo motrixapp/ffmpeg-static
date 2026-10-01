@@ -62,7 +62,7 @@
   "workflowSha256": {
     ".github/workflows/ci.yml": "d29f9b1055282215f0112a0659f95e1b52091fae38526fcd406e1e9ab0da3712",
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "f2615aff07ee832b105c2f9e1b63b49d54dd9343de48a79dd26396134c2d7b5e"
+    ".github/workflows/release.yml": "e2af32abd8e8cd08b5997f2dd5800464d808281a2f95974b4271ce2f348316ce"
   },
-  "assessmentSha256": "659a4f2789ee5a9aa57c8ecae4a12e157c95a90249c3ecba7db12e01efce63c2"
+  "assessmentSha256": "eb2900c2ae55c1a606916e07ed9c224082099e2ee6b1576b70284131e88ff085"
 }
