@@ -4,7 +4,7 @@
   "reviewedAt": "2026-10-01",
   "validUntil": "2026-10-15",
   "reviewedBy": "pending-maintainer-review",
-  "decision": "Candidate v9.0.2-motrix.2 remains blocked pending explicit maintainer approval of the limited risk exception for this new scope. The prior approval solely for v9.0.2-motrix.1 is not reusable: formal run 36810616718 failed closed because the risk gate referenced a nonexistent step output. The v9.0.2-motrix.1 annotated tag remains immutable and has no public Release. This candidate only corrects release_tag propagation and increments BUILD_REVISION; locked source archives, toolchains, official Action references, and all 42 recorded residual dependency risks are unchanged. Audit 36807648066 is the same-day complete inventory. No vulnerability is claimed fixed or wholly unreachable. Preserve all signing, notarization, independent verification, Immutable Releases and Environment confirmations. Any approval must bind this exact tag, source lock, workflow, assessment and advisory evidence, expiring no later than 2026-10-15.",
+  "decision": "Candidate v9.0.2-motrix.2 remains blocked pending explicit maintainer approval of the limited risk exception for this new scope. The prior approval solely for v9.0.2-motrix.1 is not reusable: formal run 36810616718 failed closed because the risk gate referenced a nonexistent step output. The v9.0.2-motrix.1 annotated tag remains immutable and has no public Release. This candidate corrects release_tag propagation, increments BUILD_REVISION, and handles SourceForge HTTP 522 via bounded same-URL retries and target/runner-OS-scoped source-download cache restoration. Restored files are reauthenticated against current pins before compilation; no compiled or signing inputs are cached. Locked source archives and URLs, toolchains, official Action references, and all 42 recorded residual dependency risks are unchanged. Audit 36807648066 is the same-day complete inventory. No vulnerability is claimed fixed or wholly unreachable, including cache service/extraction risks before validation. Preserve all signing, notarization, independent verification, Immutable Releases and Environment confirmations. Any approval must bind this exact tag, source lock, workflow, assessment and advisory evidence, expiring no later than 2026-10-15.",
   "actionReferences": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
@@ -60,9 +60,9 @@
   "releaseTag": "v9.0.2-motrix.2",
   "sourceLockSha256": "f53bdf9873fcf708cfa2ef2b21f1cdba38555c26b9dafb2e561b6dd954064519",
   "workflowSha256": {
-    ".github/workflows/ci.yml": "d29f9b1055282215f0112a0659f95e1b52091fae38526fcd406e1e9ab0da3712",
+    ".github/workflows/ci.yml": "36fc94182b656658d6d3d4c29ef3b9aba5dfd45132d7c29cd2ed21787257c931",
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "b82037db7542cdb886c0f407dc6758b46d429a76cc22c043b5ef0f77b95ef8fc"
+    ".github/workflows/release.yml": "c9cc3fe134eca3d67bc30893f01e7d01cd3f044a7509b65ad722c942887ecdd6"
   },
-  "assessmentSha256": "d73ec4207c34ce8d8f7ad5e70b498ff928a7b3e7601d343dfd3d22e4f617d3f1"
+  "assessmentSha256": "d52fcf91149beb97f22ed0376f2ac57c96fcf0095126a5447c85e0826a1fda80"
 }

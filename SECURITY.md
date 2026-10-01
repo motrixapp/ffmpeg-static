@@ -62,8 +62,13 @@ blocked without a new approval. The scope is enforced by
 Formal run `36810616718` for that tag failed closed before source preparation:
 the risk gate referenced `release-tag` instead of the emitted `release_tag`.
 The immutable `.1` tag is retained; no public Release was created. Corrected
-candidate `v9.0.2-motrix.2` only fixes that output reference and advances the
-build revision. Its exception remains blocked pending explicit scope approval;
+candidate `v9.0.2-motrix.2` fixes that output reference and advances the
+build revision. Its CI then exposed SourceForge HTTP 522 on a cold source cache.
+Bounded same-URL retries and same-target/runner-OS source-cache restoration
+address availability without changing any archive hash or upstream URL.
+Restored files must pass the current hash/PGP checks before compilation, but
+those checks cannot repair vulnerabilities in cache-service/extraction code.
+Its exception remains blocked pending explicit scope approval;
 the previous approval cannot be reused automatically.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.

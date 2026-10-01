@@ -216,6 +216,8 @@ jobs:
         with:
           path: build/source-cache/downloads
           key: ffmpeg-static-sources-${{ runner.os }}-${{ hashFiles('sources.env') }}
+          # Cache fallback is only for source downloads, never build/signing inputs.
+          restore-keys: ffmpeg-static-sources-${{ runner.os }}-
 
       - name: Install source verification prerequisites
         run: |

@@ -112,6 +112,11 @@ the SBOM, and write normalized archives. Python is orchestration only: it does
 not compile or link FFmpeg and is not embedded in the released executables.
 Compiler identity means the platform's Apple Clang, Clang/LLD, or GCC—not the
 Python implementation. Record Python separately as build-tool provenance.
+Source fetching requires curl 7.71 or later for bounded all-error retries.
+CI may restore same-target/runner-OS source-download caches across build
+revisions, but every file is rechecked against the current source lock and
+FFmpeg's upstream signature before compilation. A cache is not a trust root,
+and compiled payloads or signing inputs are never restored from it.
 
 ```sh
 python3 -m unittest discover -s tests -v
