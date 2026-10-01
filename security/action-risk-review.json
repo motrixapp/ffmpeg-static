@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "status": "approved",
+  "status": "blocked",
   "reviewedAt": "2026-10-01",
   "validUntil": "2026-10-15",
-  "reviewedBy": "agalwood",
-  "decision": "Maintainer agalwood explicitly approved on 2026-10-01 a limited exception solely for v9.0.2-motrix.1 through 2026-10-15, accepting all 42 recorded residual dependency risks (1 Critical, 18 High, 19 Medium, 4 Low) assessed in PR #7. Refresh audit 36807648066 confirms identical advisories, affected versions, and exact official Action references. No vulnerability is claimed fixed or wholly unreachable. Approval is invalid after any release-tag, source-lock, workflow, assessment, advisory-evidence, or Action-reference change. Preserve signing, notarization, complete verification, Immutable Releases, and all required Environment confirmations. The approval-scope guard and publication of the assessment are control-only changes; they add no Action or external input path.",
+  "reviewedBy": "pending-maintainer-review",
+  "decision": "Candidate v9.0.2-motrix.2 remains blocked pending explicit maintainer approval of the limited risk exception for this new scope. The prior approval solely for v9.0.2-motrix.1 is not reusable: formal run 36810616718 failed closed because the risk gate referenced a nonexistent step output. The v9.0.2-motrix.1 annotated tag remains immutable and has no public Release. This candidate corrects release_tag propagation, increments BUILD_REVISION, and handles SourceForge HTTP 522 via bounded same-URL retries and target/runner-OS-scoped source-download cache restoration. Restored files are reauthenticated against current pins before compilation; no compiled or signing inputs are cached. Locked source archives and URLs, toolchains, official Action references, and all 42 recorded residual dependency risks are unchanged. Audit 36807648066 is the same-day complete inventory. No vulnerability is claimed fixed or wholly unreachable, including cache service/extraction risks before validation. Preserve all signing, notarization, independent verification, Immutable Releases and Environment confirmations. Any approval must bind this exact tag, source lock, workflow, assessment and advisory evidence, expiring no later than 2026-10-15.",
   "actionReferences": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
@@ -57,12 +57,12 @@
     "GHSA-vxpw-j846-p89q"
   ],
   "auditReportSha256": "06e7bf28f087a2ed4ef7c4c9d244c79267b439da48924ee07081d03750cafcd1",
-  "releaseTag": "v9.0.2-motrix.1",
-  "sourceLockSha256": "a5a5e929ad59d511a6e16a51a93956920640d08d49b246094a9e23d61302476e",
+  "releaseTag": "v9.0.2-motrix.2",
+  "sourceLockSha256": "f53bdf9873fcf708cfa2ef2b21f1cdba38555c26b9dafb2e561b6dd954064519",
   "workflowSha256": {
-    ".github/workflows/ci.yml": "d29f9b1055282215f0112a0659f95e1b52091fae38526fcd406e1e9ab0da3712",
+    ".github/workflows/ci.yml": "36fc94182b656658d6d3d4c29ef3b9aba5dfd45132d7c29cd2ed21787257c931",
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "e2af32abd8e8cd08b5997f2dd5800464d808281a2f95974b4271ce2f348316ce"
+    ".github/workflows/release.yml": "c9cc3fe134eca3d67bc30893f01e7d01cd3f044a7509b65ad722c942887ecdd6"
   },
-  "assessmentSha256": "eb2900c2ae55c1a606916e07ed9c224082099e2ee6b1576b70284131e88ff085"
+  "assessmentSha256": "d52fcf91149beb97f22ed0376f2ac57c96fcf0095126a5447c85e0826a1fda80"
 }

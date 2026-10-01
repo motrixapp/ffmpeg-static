@@ -112,6 +112,11 @@ the SBOM, and write normalized archives. Python is orchestration only: it does
 not compile or link FFmpeg and is not embedded in the released executables.
 Compiler identity means the platform's Apple Clang, Clang/LLD, or GCC—not the
 Python implementation. Record Python separately as build-tool provenance.
+Source fetching requires curl 7.71 or later for bounded all-error retries.
+CI may restore same-target/runner-OS source-download caches across build
+revisions, but every file is rechecked against the current source lock and
+FFmpeg's upstream signature before compilation. A cache is not a trust root,
+and compiled payloads or signing inputs are never restored from it.
 
 ```sh
 python3 -m unittest discover -s tests -v
@@ -250,6 +255,11 @@ risks solely for `v9.0.2-motrix.1` through 2026-10-15. The refreshed inventory
 from run `36807648066` is unchanged. This is a short-lived exception, not a
 vulnerability fix, unrestricted permission for future releases, or confirmation
 of any signing Environment.
+That run (`36810616718`) failed closed on an incorrect step-output reference
+before source preparation. Preserve its immutable tag, correct the reference,
+and advance to `v9.0.2-motrix.2`; that candidate requires explicit approval of
+the new exact scope before formal publication. Build sources, toolchains,
+Action references and the advisory inventory are unchanged.
 
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42

@@ -299,8 +299,11 @@ download_verified() {
   temporary=$(mktemp "${destination_directory}/.$(basename -- "$destination").part.XXXXXX")
   chmod 600 "$temporary"
   log "downloading $(basename -- "$destination")"
-  if ! curl --fail --location --silent --show-error \
-    --retry 4 --connect-timeout 30 --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  # Older curl versions do not classify proxy/CDN errors such as HTTP 522
+  # as retryable. Bound retries without changing the URL or trust checks.
+  if ! curl --disable --fail --location --silent --show-error \
+    --retry 4 --retry-all-errors --retry-max-time 300 --max-time 600 \
+    --connect-timeout 30 --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --output "$temporary" "$url"; then
     rm -f -- "$temporary"
     die "download failed: ${url}"

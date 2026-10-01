@@ -114,7 +114,7 @@ jobs:
       - name: Require a current review of Action dependency risks before formal release
         if: ${{ steps.release.outputs.formal_release == 'true' }}
         env:
-          REVIEW_RELEASE_TAG: ${{ steps.release.outputs.release-tag }}
+          REVIEW_RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         run: |
           /usr/bin/python3 -I scripts/validate_action_review.py \
             --review security/action-risk-review.json \
@@ -216,6 +216,8 @@ jobs:
         with:
           path: build/source-cache/downloads
           key: ffmpeg-static-sources-${{ runner.os }}-${{ hashFiles('sources.env') }}
+          # Cache fallback is only for source downloads, never build/signing inputs.
+          restore-keys: ffmpeg-static-sources-${{ runner.os }}-
 
       - name: Install source verification prerequisites
         run: |

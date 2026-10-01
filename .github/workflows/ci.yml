@@ -92,6 +92,8 @@ jobs:
         with:
           path: build/source-cache/downloads
           key: ffmpeg-static-sources-${{ matrix.target }}-${{ hashFiles('sources.env') }}
+          # Cached bytes are reauthenticated against the current lock before use.
+          restore-keys: ffmpeg-static-sources-${{ matrix.target }}-
 
       - name: Install Linux build prerequisites
         if: runner.os == 'Linux'

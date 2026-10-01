@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "status": "assessment-only",
   "reviewedAt": "2026-10-01",
-  "releaseTag": "v9.0.2-motrix.1",
+  "releaseTag": "v9.0.2-motrix.2",
   "auditReportSha256": "06e7bf28f087a2ed4ef7c4c9d244c79267b439da48924ee07081d03750cafcd1",
   "workflowSha256": {
-    ".github/workflows/ci.yml": "d29f9b1055282215f0112a0659f95e1b52091fae38526fcd406e1e9ab0da3712",
+    ".github/workflows/ci.yml": "36fc94182b656658d6d3d4c29ef3b9aba5dfd45132d7c29cd2ed21787257c931",
     ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "e2af32abd8e8cd08b5997f2dd5800464d808281a2f95974b4271ce2f348316ce"
+    ".github/workflows/release.yml": "c9cc3fe134eca3d67bc30893f01e7d01cd3f044a7509b65ad722c942887ecdd6"
   },
-  "sourceLockSha256": "a5a5e929ad59d511a6e16a51a93956920640d08d49b246094a9e23d61302476e",
+  "sourceLockSha256": "f53bdf9873fcf708cfa2ef2b21f1cdba38555c26b9dafb2e561b6dd954064519",
   "actionReferences": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
@@ -17,12 +17,13 @@
     "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
   ],
-  "decision": "Supporting static assessment only. Authority is only the separately recorded maintainer decision in action-risk-review.json, bound to this assessment hash, exact release tag, source lock, workflow inputs, full advisory report and Action references, with at most 14-day validity. The maintainer explicitly accepted the recorded risks on 2026-10-01. Scope-guard and assessment-publication changes do not add an Action or external input path. Environment confirmations remain mandatory.",
+  "decision": "Supporting static assessment only. Authority is only the separately recorded maintainer decision in action-risk-review.json, bound to this assessment hash, exact release tag, source lock, workflow inputs, full advisory report and Action references, with at most 14-day validity. Prior approval was solely for v9.0.2-motrix.1, whose formal run failed closed on a nonexistent release-tag step output. Candidate v9.0.2-motrix.2 corrects output propagation and advances the build revision. It also handles SourceForge HTTP 522 using bounded same-URL curl retries and fixed same-target/runner-OS source-download cache prefixes. Every archive/URL, toolchain, Action reference and advisory is unchanged; every restored file is reauthenticated against current pins. Cache extraction/service code still executes before source verification, so hashing does not repair its vulnerabilities. This candidate remains blocked pending a new explicit scope approval. Environment confirmations remain mandatory.",
   "limitations": [
     "Static call-path review, not complete dynamic taint analysis, exploit testing, or proof of non-reachability.",
     "The lock inventory includes code beyond the selected entrypoint; findings are retained rather than suppressed.",
     "No known advisory is considered fixed by hash verification, isolated runners, or documentation.",
-    "This assessment must be rechecked on Action, workflow, source lock, or advisory changes; it does not authorize publication."
+    "This assessment must be rechecked on Action, workflow, source lock, or advisory changes; it does not authorize publication.",
+    "Source-cache prefix fallback admits older same-target/runner-OS source locks. Cache bytes are not trusted, must match current archive hashes and FFmpeg PGP authentication, and never include compiled/signing inputs. Service/extraction vulnerabilities can act before those checks and remain residual risks."
   ],
   "bundles": {
     "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": {

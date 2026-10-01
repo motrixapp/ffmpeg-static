@@ -34,12 +34,17 @@ class DependencyUpdateTests(unittest.TestCase):
         result["decision"] = "Test fixture only, not a production approval."
         return result
 
-    def test_recorded_approval_and_blocked_fixture(self) -> None:
-        reviews.validate(self.review, self.references, self.today)
+    def test_recorded_scope_and_approved_and_blocked_fixtures(self) -> None:
+        if self.review["status"] == "approved":
+            reviews.validate(self.review, self.references, self.today)
+        else:
+            self.assertEqual(self.review["status"], "blocked")
+            with self.assertRaisesRegex(ValueError, "formal release blocked"):
+                reviews.validate(self.review, self.references, self.today)
+        reviews.validate(self.approved_review(), self.references, self.today)
         reviews.validate_scope(self.review, ROOT / ".github/workflows", ROOT / "sources.env",
                                self.review["releaseTag"], ROOT / "security/action-reachability-review.json")
-        self.assertEqual(self.review["releaseTag"], "v9.0.2-motrix.1")
-        self.assertEqual(self.review["reviewedBy"], "agalwood")
+        self.assertEqual(self.review["releaseTag"], "v9.0.2-motrix.2")
         blocked = copy.deepcopy(self.review)
         blocked["status"] = "blocked"
         with self.assertRaisesRegex(ValueError, "formal release blocked"):
@@ -87,7 +92,7 @@ class DependencyUpdateTests(unittest.TestCase):
                 self.assertTrue(group[field])
         self.assertIn("not complete dynamic", evidence["limitations"][0])
         self.assertIn("Authority is only the separately recorded", evidence["decision"])
-        self.assertEqual(self.review["status"], "approved")
+        self.assertIn(self.review["status"], {"blocked", "approved"})
         self.assertEqual(self.review["assessmentSha256"], hashlib.sha256(
             (ROOT / "security/action-reachability-review.json").read_bytes()).hexdigest())
 
@@ -98,7 +103,7 @@ class DependencyUpdateTests(unittest.TestCase):
                                    tag or review["releaseTag"], assessment or ROOT / "security/action-reachability-review.json")
 
         with self.assertRaisesRegex(ValueError, "different release tag"):
-            check(self.review, "v9.0.2-motrix.2")
+            check(self.review, "v9.0.2-motrix.1")
         for field, value, error in (
             ("sourceLockSha256", "0" * 64, "source lock differs"),
             ("assessmentSha256", "0" * 64, "assessment differs"),
@@ -181,10 +186,20 @@ class DependencyUpdateTests(unittest.TestCase):
         self.assertIn('--release-tag "$REVIEW_RELEASE_TAG"', gate)
         self.assertIn("--assessment security/action-reachability-review.json", gate)
         self.assertNotIn("continue-on-error", gate)
+        self.assertIn("REVIEW_RELEASE_TAG: ${{ steps.release.outputs.release_tag }}", gate)
         gate_index = workflow.index("scripts/validate_action_review.py")
         for marker in ("Bind requested remote tag", "uses: actions/cache@", "environment: macos-release-signing",
                        "environment: release-manifest-signing", "environment: github-release"):
             self.assertLess(gate_index, workflow.index(marker))
+
+    def test_release_step_consumers_use_emitted_output_names(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        producer = workflow.split("        id: release\n", 1)[1].split("      - name:", 1)[0]
+        emitted = set(re.findall(r'output\.write\(f"([a-z_]+)=', producer))
+        self.assertEqual(emitted, {"ffmpeg_version", "release_version", "release_tag", "formal_release"})
+        consumers = set(re.findall(r"steps\.release\.outputs\.([A-Za-z_-]+)", workflow))
+        self.assertTrue(consumers)
+        self.assertLessEqual(consumers, emitted)
 
     def test_risk_approval_is_rechecked_after_waits_and_at_publication(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
