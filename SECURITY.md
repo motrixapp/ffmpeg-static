@@ -68,8 +68,12 @@ Bounded same-URL retries and same-target/runner-OS source-cache restoration
 address availability without changing any archive hash or upstream URL.
 Restored files must pass the current hash/PGP checks before compilation, but
 those checks cannot repair vulnerabilities in cache-service/extraction code.
-Its exception remains blocked pending explicit scope approval;
-the previous approval cannot be reused automatically.
+After all nine checks passed in CI run `36812820986`, `agalwood` explicitly
+approved the fully disclosed `.2` scope on 2026-10-01, including those retry
+and cache-policy changes. The new single-version exception expires on
+2026-10-15 UTC and is recorded separately; the previous `.1` approval is not
+reused. All 42 advisories and protected-Environment confirmations remain in
+force. This decision does not mean a public Release already exists.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -127,7 +131,7 @@ PGP verification is unchanged.
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
 tag=v9.0.2-motrix.2
-asset=ffmpeg-9.0.2-motrix.1-linux-x64.tar.gz
+asset=ffmpeg-9.0.2-motrix.2-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS

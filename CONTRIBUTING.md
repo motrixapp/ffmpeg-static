@@ -257,9 +257,13 @@ vulnerability fix, unrestricted permission for future releases, or confirmation
 of any signing Environment.
 That run (`36810616718`) failed closed on an incorrect step-output reference
 before source preparation. Preserve its immutable tag, correct the reference,
-and advance to `v9.0.2-motrix.2`; that candidate requires explicit approval of
-the new exact scope before formal publication. Build sources, toolchains,
-Action references and the advisory inventory are unchanged.
+and advance to `v9.0.2-motrix.2`. After all nine checks passed in CI run
+`36812820986`, `agalwood` explicitly approved that new exact scope on
+2026-10-01 through 2026-10-15 UTC, including bounded same-URL retries and
+same-target/runner-OS source-cache fallback. Build sources, toolchains,
+Action references and all 42 advisories are unchanged. This separate
+single-version exception does not confirm any protected Environment or
+claim a public Release already exists.
 
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42
@@ -369,7 +373,7 @@ plan/visibility change, or credential rotation.
   `https://motrix.app/manual/ffmpeg/`
   (Chinese: `https://motrix.app/zh/manual/ffmpeg/`). Re-check the live PEM and
   its SPKI-DER key ID before release; website publication is not approval of
-  the blocked Action dependency review.
+  the separately enforced Action dependency review.
   Consumers authenticate the manifest with that root before using its Apple
   identity fields, then compare them against actual code signatures. This
   intentionally drops the separate out-of-band Apple identity trust anchor;
