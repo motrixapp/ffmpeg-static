@@ -127,6 +127,13 @@ jobs:
           brew install gnupg pkg-config
           python3 -I -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
 
+      - name: Test protected macOS certificate decoding contract
+        if: ${{ matrix.platform == 'darwin' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/python3 -I -m unittest discover -s tests -p test_macos_certificate_encoding.py -v
+
       - name: Fetch, authenticate, build, and verify locked inputs
         env:
           TARGET: ${{ matrix.target }}

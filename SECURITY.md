@@ -117,6 +117,22 @@ are imported from payload directories. The continuing maintainer authorization
 is freshly bound only to `.5`, with the same 42 advisories and 2026-10-15 UTC
 deadline; no prior hash binding or protected-Environment approval is reused.
 All four previous tags remain immutable.
+Formal `.5` run `36848365270` passed all candidate/rebuild and secret-free checks
+and Windows final packaging. Following the maintainer's macOS Environment
+confirmation, both signing jobs rejected invalid Base64 in `MAC_CERTS` before
+certificate import, code signing or notarization. Credentials were available to
+the failing step; no Secret contents were inspected or public Release created.
+Candidate `.6` narrowly accepts ASCII space/tab/CR/LF in otherwise canonical
+standard Base64, with a 64 KiB raw-input bound, strict padding/alphabet checks,
+no partial output and a redacted generic error. Public fake fixtures execute the
+actual production decoder under isolated system Python in native macOS CI and
+secret-free pre-sign jobs. This does not authenticate a certificate: all existing
+PKCS#12, unique Developer ID identity, internal Team/certificate pins, hardened
+runtime, timestamp and notarization checks remain mandatory. The continuing
+authorization is freshly bound only to `.6`, with the same 42 advisories and
+2026-10-15 UTC deadline; the `.5` Environment approval does not authorize `.6`.
+All five earlier tags remain immutable. New advisories, expiry extensions and
+unrelated source/Action changes still require a new human decision.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
@@ -173,8 +189,8 @@ PGP verification is unchanged.
 ```bash
 set -euo pipefail
 repo=motrixapp/ffmpeg-static
-tag=v9.0.2-motrix.5
-asset=ffmpeg-9.0.2-motrix.5-linux-x64.tar.gz
+tag=v9.0.2-motrix.6
+asset=ffmpeg-9.0.2-motrix.6-linux-x64.tar.gz
 manifest=ffmpeg-manifest.json
 gh release verify "$tag" -R "$repo"
 gh release download "$tag" -R "$repo" -p "$manifest" -p "$manifest.sig" -p SHA256SUMS

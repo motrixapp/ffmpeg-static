@@ -310,6 +310,24 @@ maintainer authorization above is freshly bound only to `.5` and its new scope,
 retaining the same 42 advisories and 2026-10-15 UTC deadline. It does not reuse
 the `.4` hashes, approve an Environment, or widen the risk acceptance.
 
+Formal `.5` run `36848365270` passed all candidate/rebuild and secret-free
+approval/grant checks and both Windows final packaging jobs. After the maintainer
+confirmed the macOS Environment, both signing jobs failed closed while decoding
+`MAC_CERTS`: strict Base64 rejected an invalid character. Credentials had reached
+that step, but certificate import, code signing and notarization had not begun.
+The Secret was not inspected; wrapped/trailing-newline Base64 is a common possible
+cause, not a confirmed diagnosis of its contents. Candidate `.6` accepts only
+ASCII space, tab, CR and LF around canonical standard Base64, bounds raw input to
+64 KiB and rejects malformed padding, other alphabets/characters and empty data
+without printing input. Actual production-pipeline fake fixtures run under the
+signer's isolated system Python in both native macOS CI and secret-free pre-sign
+jobs. Identity pins, PKCS#12 import, timestamps, signing, notarization and every
+other release gate are unchanged. The continuing authorization is freshly bound
+only to `.6`, retaining all 42 advisories and the same 2026-10-15 UTC deadline.
+No earlier hash record or Environment confirmation is reused; all five previous
+tags remain immutable. If decoding still fails, the maintainer must privately
+replace the malformed Secret rather than weakening validation or disclosing it.
+
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42
 inventoried advisories. It records input limitations and residual risk, including
@@ -430,6 +448,11 @@ plan/visibility change, or credential rotation.
   `RELEASE_ADMIN_TOKEN` in
   `github-release`. Verify least privilege, expiry monitoring, revocation
   ownership, and secret redaction.
+  `MAC_CERTS` must be standard Base64 of the binary Developer ID Application
+  PKCS#12 export, not PEM, a path, quoted text or literal `\\n` escape sequences.
+  Conventional ASCII spaces/tabs/CR/LF are accepted; other characters,
+  noncanonical padding and raw input over 64 KiB fail closed. Provision the
+  Secret privately via standard input; never paste its value into logs or chat.
 - [ ] Review GitHub Actions policy and every `uses:` reference. Permit only the
   intended actions, keep full commit-SHA pins, disable write tokens by default,
   and retain OIDC/attestation permissions only on the attestation job. Confirm
