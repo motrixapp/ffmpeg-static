@@ -274,7 +274,11 @@ Windows binary-mode reads, requires a deterministic linker ad-hoc baseline on
 both macOS architectures, and carries exact read-only x64 NASM evidence through
 verification. Neither immutable tag is replaced. The changed release tag,
 source lock and workflows require a new explicit risk decision; the prior
-single-version `.2` exception cannot authorize `.3` publication.
+single-version `.2` exception cannot authorize `.3` publication. On 2026-10-01,
+`agalwood` explicitly authorized that fully disclosed `.3` scope and all 42
+residual advisories solely for this version through 2026-10-15 UTC, conditional
+on all exact-commit CI checks and unchanged protected release gates. This
+separate recorded exception neither fixes an advisory nor confirms an Environment.
 
 The supporting [call-path assessment](security/action-reachability-review.json)
 binds the current workflow, source lock, exact upstream bundles, and all 42

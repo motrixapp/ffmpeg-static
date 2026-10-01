@@ -84,8 +84,12 @@ integration errors without relaxing byte comparisons, file bounds, NASM source
 authentication, Developer ID signing, notarization, or protected Environments.
 Read-only NASM evidence is included in exact input/rebuild hashes and is never
 executed by signers or distributed in payload archives. Its changed lock and
-workflows invalidate the `.2` exception: `.3` remains blocked pending a new
-explicit, scope-bound maintainer risk decision for all inventoried advisories.
+workflows invalidate the `.2` exception. On 2026-10-01, `agalwood` explicitly
+authorized publishing the fully disclosed `.3` scope and accepted all 42
+residual advisories solely for this version through 2026-10-15 UTC. The new
+decision is bound separately in the review record, conditional on every
+exact-commit CI check and unchanged signing, notarization and Environment gate.
+It is neither a vulnerability fix nor an Environment approval or public Release.
 The protected-main prepare job checks this gate before cache restoration,
 source compilation, environment approvals, or signing/publishing credentials.
 An approval must bind every exact Action commit, the SHA-256 of the complete
