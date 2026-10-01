@@ -37,6 +37,50 @@ class DependencyUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "formal release blocked"):
             reviews.validate(self.review, self.references, self.today)
 
+    def test_call_path_assessment_covers_every_advisory_and_exact_input(self) -> None:
+        evidence = json.loads((ROOT / "security/action-reachability-review.json").read_text())
+        report_data = (ROOT / "security/action-dependency-audit.json").read_bytes()
+        report = json.loads(report_data)
+        self.assertEqual(evidence["schemaVersion"], 1)
+        self.assertEqual(evidence["status"], "pending-maintainer-decision")
+        self.assertEqual(evidence["reviewedAt"], self.review["reviewedAt"])
+        self.assertEqual(evidence["auditReportSha256"], hashlib.sha256(report_data).hexdigest())
+        self.assertEqual(evidence["actionReferences"], self.review["actionReferences"])
+        self.assertEqual(set(evidence["bundles"]), self.references)
+        self.assertEqual(evidence["releaseTag"], pipeline_lib.release_tag(pipeline_lib.load_sources()))
+        self.assertEqual(evidence["sourceLockSha256"], hashlib.sha256((ROOT / "sources.env").read_bytes()).hexdigest())
+        for workflow, digest in evidence["workflowSha256"].items():
+            self.assertEqual(digest, hashlib.sha256((ROOT / workflow).read_bytes()).hexdigest())
+        self.assertEqual(set(evidence["workflowSha256"]), {
+            ".github/workflows/ci.yml", ".github/workflows/dependency-audit.yml",
+            ".github/workflows/release.yml",
+        })
+        records = evidence["advisories"]
+        ids = [item["id"] for item in records]
+        self.assertEqual(ids, sorted(set(self.review["advisories"])))
+        for record in records:
+            expected = [
+                {"action": finding["action"], "package": finding["package"],
+                 "version": finding["version"]}
+                for finding in report["findings"]
+                if any(item["id"] == record["id"] for item in finding["advisories"])
+            ]
+            self.assertEqual(record["affected"], expected)
+            severities = {
+                item["severity"] for finding in report["findings"]
+                for item in finding["advisories"] if item["id"] == record["id"]
+            }
+            self.assertEqual(severities, {record["severity"]})
+            self.assertEqual(record["url"], "https://github.com/advisories/" + record["id"])
+            self.assertTrue(record["summary"])
+            self.assertTrue(record["upstreamRanges"])
+            group = evidence["groups"][record["group"]]
+            for field in ("assessment", "controls", "residualRisk", "evidence"):
+                self.assertTrue(group[field])
+        self.assertIn("not complete dynamic", evidence["limitations"][0])
+        self.assertIn("Keep action-risk-review.json blocked", evidence["decision"])
+        self.assertEqual(self.review["status"], "blocked")
+
     def test_review_binds_exact_actions_and_fresh_dates(self) -> None:
         review = self.approved_review()
         reviews.validate(review, self.references, self.today)
