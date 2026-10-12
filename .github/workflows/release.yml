@@ -385,7 +385,7 @@ jobs:
           persist-credentials: false
 
       - name: Download bound authenticated core sources
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.core-artifact-id }}
           path: build/source-cache/downloads
@@ -393,7 +393,7 @@ jobs:
 
       - name: Download bound authenticated Windows toolchain
         if: matrix.platform == 'win32'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
           path: build/source-cache/downloads
@@ -617,28 +617,28 @@ jobs:
       win32_x64_digest: ${{ steps.resolve.outputs.win32_x64_digest }}
     steps:
       - name: Download darwin-arm64 binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signing-input-binding-darwin-arm64
           path: bindings/darwin-arm64
           digest-mismatch: error
 
       - name: Download darwin-x64 binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signing-input-binding-darwin-x64
           path: bindings/darwin-x64
           digest-mismatch: error
 
       - name: Download win32-arm64 binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signing-input-binding-win32-arm64
           path: bindings/win32-arm64
           digest-mismatch: error
 
       - name: Download win32-x64 binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signing-input-binding-win32-x64
           path: bindings/win32-x64
@@ -761,7 +761,7 @@ jobs:
           persist-credentials: false
 
       - name: Download bound authenticated core sources
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.core-artifact-id }}
           path: build/source-cache/downloads
@@ -769,7 +769,7 @@ jobs:
 
       - name: Download bound authenticated Windows toolchain
         if: matrix.platform == 'win32'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
           path: build/source-cache/downloads
@@ -913,28 +913,28 @@ jobs:
       win32_x64_digest: ${{ steps.resolve.outputs.win32_x64_digest }}
     steps:
       - name: Download darwin-arm64 rebuild binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: independent-rebuild-binding-darwin-arm64
           path: bindings/darwin-arm64
           digest-mismatch: error
 
       - name: Download darwin-x64 rebuild binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: independent-rebuild-binding-darwin-x64
           path: bindings/darwin-x64
           digest-mismatch: error
 
       - name: Download win32-arm64 rebuild binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: independent-rebuild-binding-win32-arm64
           path: bindings/win32-arm64
           digest-mismatch: error
 
       - name: Download win32-x64 rebuild binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: independent-rebuild-binding-win32-x64
           path: bindings/win32-x64
@@ -1068,14 +1068,14 @@ jobs:
           /usr/bin/python3 -I -m unittest discover -s tests -p test_macos_keychain_lifecycle.py -v
 
       - name: Download exact bound unsigned macOS payload
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.input_id }}
           path: build/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent clean macOS rebuild
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.rebuild_id }}
           path: build/rebuild/${{ matrix.target }}
@@ -1173,21 +1173,21 @@ jobs:
           persist-credentials: false
 
       - name: Download exact bound unsigned Windows payload
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.input_id }}
           path: build/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent clean Windows rebuild
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.rebuild_id }}
           path: build/rebuild/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download bound authenticated Windows inspection toolchain
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
           path: build/source-cache/downloads
@@ -1306,14 +1306,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'native release-contract regression failed' }
 
       - name: Download exact bound unsigned Windows payload
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.input_id }}
           path: build/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent clean Windows rebuild
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.rebuild_id }}
           path: build/rebuild/${{ matrix.target }}
@@ -1516,49 +1516,49 @@ jobs:
           PY
 
       - name: Download exact macOS arm64 approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.resolve-approvals.outputs.macos_static_darwin_arm64_id }}
           path: build/approvals/macos-static/darwin-arm64
           digest-mismatch: error
 
       - name: Download exact macOS x64 approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.resolve-approvals.outputs.macos_static_darwin_x64_id }}
           path: build/approvals/macos-static/darwin-x64
           digest-mismatch: error
 
       - name: Download exact Windows arm64 static approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.resolve-approvals.outputs.windows_static_win32_arm64_id }}
           path: build/approvals/windows-static/win32-arm64
           digest-mismatch: error
 
       - name: Download exact Windows x64 static approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.resolve-approvals.outputs.windows_static_win32_x64_id }}
           path: build/approvals/windows-static/win32-x64
           digest-mismatch: error
 
       - name: Download exact Windows arm64 native approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.resolve-approvals.outputs.windows_native_win32_arm64_id }}
           path: build/approvals/windows-native/win32-arm64
           digest-mismatch: error
 
       - name: Download exact Windows x64 native approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.resolve-approvals.outputs.windows_native_win32_x64_id }}
           path: build/approvals/windows-native/win32-x64
           digest-mismatch: error
 
       - name: Download exact signing candidates
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-signing-inputs.outputs.darwin_arm64_id }},${{ needs.resolve-signing-inputs.outputs.darwin_x64_id }},${{ needs.resolve-signing-inputs.outputs.win32_arm64_id }},${{ needs.resolve-signing-inputs.outputs.win32_x64_id }}
           path: build/candidates
@@ -1566,7 +1566,7 @@ jobs:
           digest-mismatch: error
 
       - name: Download exact independent rebuilds
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-rebuild-inputs.outputs.darwin_arm64_id }},${{ needs.resolve-rebuild-inputs.outputs.darwin_x64_id }},${{ needs.resolve-rebuild-inputs.outputs.win32_arm64_id }},${{ needs.resolve-rebuild-inputs.outputs.win32_x64_id }}
           path: build/rebuilds
@@ -1856,28 +1856,28 @@ jobs:
             --assessment security/action-reachability-review.json
 
       - name: Download bound unsigned macOS payload
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.input_id }}
           path: build/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent clean macOS rebuild reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.rebuild_id }}
           path: build/rebuild/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent macOS pre-sign approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.approval_id }}
           path: build/approval/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download exact final macOS signing grant
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.grant_id }}
           path: build/final-grant/${{ matrix.target }}
@@ -2254,42 +2254,42 @@ jobs:
       win32_x64_digest: ${{ steps.resolve.outputs.win32_x64_digest }}
     steps:
       - name: Download darwin-arm64 release binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-binding-darwin-arm64
           path: bindings/darwin-arm64
           digest-mismatch: error
 
       - name: Download darwin-x64 release binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-binding-darwin-x64
           path: bindings/darwin-x64
           digest-mismatch: error
 
       - name: Download linux-arm64 release binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-binding-linux-arm64
           path: bindings/linux-arm64
           digest-mismatch: error
 
       - name: Download linux-x64 release binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-binding-linux-x64
           path: bindings/linux-x64
           digest-mismatch: error
 
       - name: Download win32-arm64 release binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-binding-win32-arm64
           path: bindings/win32-arm64
           digest-mismatch: error
 
       - name: Download win32-x64 release binding
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-binding-win32-x64
           path: bindings/win32-x64
@@ -2414,14 +2414,14 @@ jobs:
           persist-credentials: false
 
       - name: Download exact signed macOS candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.artifact_id }}
           path: dist/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download exact bound pre-signing macOS input
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.unsigned_id }}
           path: build/unsigned/${{ matrix.target }}
@@ -2664,7 +2664,7 @@ jobs:
           persist-credentials: false
 
       - name: Download exact Windows release candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.artifact_id }}
           path: dist
@@ -2737,21 +2737,21 @@ jobs:
           persist-credentials: false
 
       - name: Download exact bound pre-signing input
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.unsigned_id }}
           path: build/unsigned/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download exact bound signed candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.signed_id }}
           path: build/signed-candidate/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download bound authenticated Windows inspection toolchain
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.toolchain-artifact-id }}
           path: build/source-cache/downloads
@@ -2951,49 +2951,49 @@ jobs:
           persist-credentials: false
 
       - name: Download darwin-arm64 candidate by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_arm64_id }}
           path: build/candidates/darwin-arm64
           digest-mismatch: error
 
       - name: Download darwin-x64 candidate by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_x64_id }}
           path: build/candidates/darwin-x64
           digest-mismatch: error
 
       - name: Download linux-arm64 candidate by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_arm64_id }}
           path: build/candidates/linux-arm64
           digest-mismatch: error
 
       - name: Download linux-x64 candidate by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_x64_id }}
           path: build/candidates/linux-x64
           digest-mismatch: error
 
       - name: Download win32-arm64 candidate by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_arm64_id }}
           path: build/candidates/win32-arm64
           digest-mismatch: error
 
       - name: Download win32-x64 candidate by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_x64_id }}
           path: build/candidates/win32-x64
           digest-mismatch: error
 
       - name: Download bound redistributable source assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.sources-artifact-id }}
           path: build/release-sources
@@ -3132,49 +3132,49 @@ jobs:
             --release-tag "$REVIEW_RELEASE_TAG" \
             --assessment security/action-reachability-review.json
       - name: Download exact independently verified assembled release
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.assemble.outputs.artifact-id }}
           path: dist
           digest-mismatch: error
       - name: Download independently verified darwin-arm64 reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_arm64_id }}
           path: build/reference-targets/darwin-arm64
           digest-mismatch: error
       - name: Download independently verified darwin-x64 reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.darwin_x64_id }}
           path: build/reference-targets/darwin-x64
           digest-mismatch: error
       - name: Download independently verified linux-arm64 reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_arm64_id }}
           path: build/reference-targets/linux-arm64
           digest-mismatch: error
       - name: Download independently verified linux-x64 reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.linux_x64_id }}
           path: build/reference-targets/linux-x64
           digest-mismatch: error
       - name: Download independently verified win32-arm64 reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_arm64_id }}
           path: build/reference-targets/win32-arm64
           digest-mismatch: error
       - name: Download independently verified win32-x64 reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.resolve-release-artifacts.outputs.win32_x64_id }}
           path: build/reference-targets/win32-x64
           digest-mismatch: error
       - name: Download independently authenticated source reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.prepare-sources.outputs.sources-artifact-id }}
           path: build/reference-sources
@@ -3245,7 +3245,7 @@ jobs:
             --assessment security/action-reachability-review.json
 
       - name: Download complete release set by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.sign-manifest.outputs.artifact-id }}
           path: dist
@@ -3336,7 +3336,7 @@ jobs:
             --assessment security/action-reachability-review.json
 
       - name: Download complete release set by bound ID
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.sign-manifest.outputs.artifact-id }}
           path: dist
@@ -3886,42 +3886,42 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Action dependency risk review failed' }
 
       - name: Download bound unsigned Windows payload
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.input_id }}
           path: build/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent clean Windows rebuild reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.rebuild_id }}
           path: build/rebuild/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent static PE approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.static_approval_id }}
           path: build/static-approval/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download independent native Windows approval
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.native_approval_id }}
           path: build/native-approval/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download exact final static PE signing grant
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.static_grant_id }}
           path: build/static-grant/${{ matrix.target }}
           digest-mismatch: error
 
       - name: Download exact final native Windows signing grant
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ matrix.native_grant_id }}
           path: build/native-grant/${{ matrix.target }}
