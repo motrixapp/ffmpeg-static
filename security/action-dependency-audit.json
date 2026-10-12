@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "scannedAt": "2026-10-01T02:53:06.790061+00:00",
+  "scannedAt": "2026-10-12T16:44:24.063003+00:00",
   "actions": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
-    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
+    "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
   ],
-  "runtimePackageVersions": 265,
+  "runtimePackageVersions": 251,
   "findings": [
     {
       "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
@@ -75,6 +75,18 @@
           "id": "GHSA-8cw4-87c7-c6xx",
           "severity": "medium",
           "url": "https://github.com/advisories/GHSA-8cw4-87c7-c6xx"
+        }
+      ]
+    },
+    {
+      "action": "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+      "package": "http-cache-semantics",
+      "version": "4.2.0",
+      "advisories": [
+        {
+          "id": "GHSA-ch52-4w7c-c8xp",
+          "severity": "high",
+          "url": "https://github.com/advisories/GHSA-ch52-4w7c-c8xp"
         }
       ]
     },
@@ -279,7 +291,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "@isaacs/brace-expansion",
       "version": "5.0.0",
       "advisories": [
@@ -291,7 +303,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "brace-expansion",
       "version": "2.0.2",
       "advisories": [
@@ -333,7 +345,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "fast-xml-parser",
       "version": "5.3.4",
       "advisories": [
@@ -370,7 +382,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "lodash",
       "version": "4.17.23",
       "advisories": [
@@ -387,7 +399,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "minimatch",
       "version": "10.1.1",
       "advisories": [
@@ -409,7 +421,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "minimatch",
       "version": "5.1.6",
       "advisories": [
@@ -431,7 +443,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "minimatch",
       "version": "9.0.5",
       "advisories": [
@@ -453,7 +465,7 @@
       ]
     },
     {
-      "action": "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "action": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
       "package": "undici",
       "version": "6.23.0",
       "advisories": [
@@ -530,7 +542,7 @@
       ]
     },
     {
-      "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "action": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       "package": "brace-expansion",
       "version": "1.1.12",
       "advisories": [
@@ -572,7 +584,7 @@
       ]
     },
     {
-      "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "action": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       "package": "brace-expansion",
       "version": "2.0.2",
       "advisories": [
@@ -614,7 +626,7 @@
       ]
     },
     {
-      "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "action": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       "package": "brace-expansion",
       "version": "5.0.3",
       "advisories": [
@@ -661,7 +673,7 @@
       ]
     },
     {
-      "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "action": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       "package": "fast-xml-builder",
       "version": "1.0.0",
       "advisories": [
@@ -673,7 +685,7 @@
       ]
     },
     {
-      "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "action": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       "package": "fast-xml-parser",
       "version": "5.4.1",
       "advisories": [
@@ -695,7 +707,7 @@
       ]
     },
     {
-      "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "action": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       "package": "lodash",
       "version": "4.17.23",
       "advisories": [
@@ -712,7 +724,7 @@
       ]
     },
     {
-      "action": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "action": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       "package": "undici",
       "version": "6.23.0",
       "advisories": [

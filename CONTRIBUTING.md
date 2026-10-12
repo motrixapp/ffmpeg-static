@@ -254,6 +254,16 @@ after protected-environment waits, before signing/attestation/publishing work,
 and immediately before making a draft public; the UTC expiry must still hold.
 Existing signing-environment approvals remain required.
 
+The artifact Action patch upgrades to upload v7.0.2 and download v8.0.2 change
+the exact workflow scope, so the earlier release-specific approval cannot be
+reused. The refreshed 2026-10-12 UTC inventory covers 251 runtime package
+versions and 43 advisories, including GHSA-ch52-4w7c-c8xp in the unchanged
+attest Action. The exact bundle, workflow, audit, and assessment hashes are
+updated; `security/action-risk-review.json` remains blocked pending a new
+explicit maintainer decision. The existing 2026-10-15 deadline is not extended.
+Unsigned PR validation can run, but this dependency change does not authorize
+formal signing, attestation, or publication.
+
 On 2026-10-01, maintainer `agalwood` explicitly accepted the documented residual
 risks solely for `v9.0.2-motrix.1` through 2026-10-15. The refreshed inventory
 from run `36807648066` is unchanged. This is a short-lived exception, not a
