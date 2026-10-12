@@ -1,16 +1,16 @@
 {
   "schemaVersion": 2,
-  "status": "approved",
-  "reviewedAt": "2026-10-01",
+  "status": "blocked",
+  "reviewedAt": "2026-10-12",
   "validUntil": "2026-10-15",
-  "reviewedBy": "agalwood",
-  "decision": "On 2026-10-01 agalwood authorized corrective revisions until the first formal Release succeeds, with the same 42 residual Action advisories (1 Critical, 18 High, 19 Medium, 4 Low) and unchanged 2026-10-15 UTC deadline. This fresh exact-scope record binds only v9.0.2-motrix.8, its source lock, every unchanged workflow byte, the unchanged complete same-day audit 36807648066 and official full-SHA Action references. Formal .7 run 36871808723 passed genuine Developer ID signing and exact-ZIP notarization on both macOS architectures after fresh Environment confirmation, plus both native Windows final smoke tests. Four final structural jobs failed closed at BUILD-INFO exact-byte comparison because packaging re-serialized the validated record. Assembly, Ed25519 signing and publication were skipped; no Release was published or Secret value inspected. The .8 correction archives the same single bounded, binary, race-checked BUILD-INFO read used for complete strict JSON/schema/provenance validation, preserving approved bytes verbatim. Normalized dependency descriptions remain separate metadata/SBOM data. All exact final byte comparisons and malformed/duplicate/unknown-record, source, configure, license and architecture checks remain. Public six-target fixtures run the real isolated packaging CLI with noncanonical valid JSON, CRLF, whitespace and reversed dependency order, proving original bytes in ZIP/TAR and unchanged input. No workflow, Action, source archive/URL, toolchain, cache policy, dispatch/API/artifact binding, Secret surface/permission, keychain isolation, certificate pin, hardened runtime, timestamp, notarization or publication authority changes. Existing strict Base64, isolated Windows packaging/risk checks, protected readers, deterministic macOS baseline and NASM evidence remain. All 42 advisories persist, including cache service/extraction risks before validation and signature type-binding risk; none is claimed fixed or wholly unreachable. Publication still requires exact-commit CI, size/race/hash/byte checks, independent rebuilds, platform signing/notarization, pinned Ed25519 authentication, independent final verification, Immutable Releases and fresh human Environment confirmations. All seven prior tags remain immutable; no prior scope, approval or run-specific signature/notarization evidence is reused for .8. Further corrections require fresh exact-scope records. New advisories, deadline extensions or unrelated source/Action updates require a new human decision. This limited decision grants no Environment approval, no exception for another tag or unknown scope, and no publication after the deadline.",
+  "reviewedBy": "pending-maintainer-review",
+  "decision": "The artifact Action patch upgrades change the exact Action references and workflow bytes, invalidating the prior v9.0.2-motrix.8 release-specific approval. The refreshed inventory contains 43 distinct advisories (1 Critical, 19 High, 19 Medium, 4 Low), including GHSA-ch52-4w7c-c8xp in the unchanged attest Action. None of the previous 42 advisory IDs was removed. This record binds the new full-SHA Actions, workflow bytes, current source lock, complete audit and static assessment solely to keep the release gate fail-closed. Formal signing, attestation and publication remain blocked pending a new explicit maintainer decision. The existing 2026-10-15 deadline is not extended; no release version, protected Environment approval or prior risk acceptance is reused.",
   "actionReferences": [
     "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
     "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-    "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
-    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
+    "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
   ],
   "advisories": [
     "GHSA-23c5-xmqv-rm74",
@@ -28,6 +28,7 @@
     "GHSA-8cw4-87c7-c6xx",
     "GHSA-8gc5-j5rx-235r",
     "GHSA-8xcm-r25x-g524",
+    "GHSA-ch52-4w7c-c8xp",
     "GHSA-f23m-r3pf-42rh",
     "GHSA-f269-vfmq-vjvj",
     "GHSA-f886-m6hf-6m8v",
@@ -56,13 +57,13 @@
     "GHSA-vrm6-8vpv-qv8q",
     "GHSA-vxpw-j846-p89q"
   ],
-  "auditReportSha256": "06e7bf28f087a2ed4ef7c4c9d244c79267b439da48924ee07081d03750cafcd1",
+  "auditReportSha256": "c85281e83f83999188166bfa16e2a24886b7c6f8d065ee6ebe31c4d4ab434a50",
   "releaseTag": "v9.0.2-motrix.8",
   "sourceLockSha256": "b3ac51dbf3dc8ec472b6a4404fc5fc9d77013fc0480114aeea8ea196214cf630",
   "workflowSha256": {
-    ".github/workflows/ci.yml": "74d679b32694fa267a8e546f59dd2658c5a80b0413bec7ea9fd6d53eaa2f7682",
-    ".github/workflows/dependency-audit.yml": "507bdf1a9233c83eb2926f001cae71e1fa03e43830ad326491050a53d8e3364b",
-    ".github/workflows/release.yml": "4eee054e4c8a2e14a3ed47c6152f6e7fea738d928adfec30d4b78262a71f5aaa"
+    ".github/workflows/ci.yml": "242f4702d2fc51f8d0533d61a6aa6afaed76aee8fda51697d8065fc3424c4119",
+    ".github/workflows/dependency-audit.yml": "bebe4370806ac95e206bf8323f715cc03dcbf9ae542af57c8fc6b8254abd766f",
+    ".github/workflows/release.yml": "5ae6196bf29fbf437f40f18a8f8f3073f31a87f2a4a6a3dbc043ccd5e2fde444"
   },
-  "assessmentSha256": "8602ba441a30f8583dafc5ef474fa075db79fec5c6f07ffc16da3ba0e097ecbe"
+  "assessmentSha256": "753e5c209842aa0b3ed719f17e299b8fb9b4b7c11e9d536677d7a60244f60db2"
 }
